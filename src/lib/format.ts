@@ -75,7 +75,15 @@ export function today(): string {
 export function parseNumber(s: string): number {
   const t = s.trim().replace(/\s/g, '');
   if (!t) return NaN;
-  const normalized = t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t;
+  const comma = t.lastIndexOf(',');
+  const dot = t.lastIndexOf('.');
+  let normalized = t;
+  if (comma >= 0 && dot >= 0) {
+    // Entrambi presenti: l'ultimo è il separatore decimale ("1.234,56" o "1,234.56").
+    normalized = comma > dot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  } else if (comma >= 0) {
+    normalized = t.replace(',', '.');
+  }
   return Number(normalized);
 }
 

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
-import { useStore, withTarget } from '../store';
+import { NEW_ACCOUNT, useStore, withTarget } from '../store';
 import { detectImporter, importers, readSheets, type FileImporter, type Sheet } from '../lib/importers';
+import { nameFromFile } from '../lib/importers/util';
 import { mergeSync } from '../lib/sync';
 import { date as fmtDate, money, qty, today } from '../lib/format';
 import { TX_TYPES } from '../lib/types';
@@ -13,6 +14,14 @@ interface Pending {
   importer: FileImporter;
   sheets: Sheet[];
 }
+
+const slug = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
 /** Zona di trascinamento per importare gli export dei broker (letti solo nel browser). */
 export function FileImport() {
@@ -115,14 +124,19 @@ export function FileImport() {
 function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message?: string) => void }) {
   const { data, dispatch } = useStore();
   const { importer, sheets, file } = pending;
-  const connectionId = `file:${importer.label.toLowerCase().replace(/\s+/g, '-')}`;
+  // Per il CSV generico il nome del conto parte dal nome del file ("directa_2026.csv" → "Directa") e distingue
+  // i broker: reimportando un file dello stesso broker si aggiorna lo stesso conto.
+  const defaultName = importer.id === 'generic' ? nameFromFile(file.name) : importer.label;
+  const connectionId = `file:${slug(importer.id === 'generic' ? `generic-${defaultName}` : importer.label)}`;
   const linked = data.accounts.find((a) => a.connectionId === connectionId);
-  const [target, setTarget] = useState<string>(linked?.id ?? '');
+  const [target, setTarget] = useState<string>(linked?.id ?? NEW_ACCOUNT);
+  const [newName, setNewName] = useState(defaultName);
+  const label = target === NEW_ACCOUNT ? newName.trim() || defaultName : importer.label;
   const [balanceCash, setBalanceCash] = useState(importer.needsCashBalance);
 
   const preview = useMemo(() => {
     try {
-      const base = withTarget(data, connectionId, target || undefined);
+      const base = withTarget(data, connectionId, target);
       const account = base.accounts.find((a) => a.connectionId === connectionId);
       const existingIds = new Set(
         base.transactions.filter((t) => t.accountId === account?.id && t.externalId).map((t) => t.externalId!),
@@ -132,22 +146,22 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
         existingIds,
         knownSymbols: data.assets.map((a) => a.symbol),
       });
-      const merged = mergeSync(base, { id: connectionId, label: importer.label }, result, today());
+      const merged = mergeSync(base, { id: connectionId, label }, result, today());
       const added = merged.data.transactions.filter((t) => !base.transactions.some((b) => b.id === t.id));
       return { result, stats: merged.stats, added, assets: merged.data.assets, error: '' };
     } catch (e) {
       return { error: (e as Error).message };
     }
-  }, [data, connectionId, target, balanceCash, importer, sheets]);
+  }, [data, connectionId, target, balanceCash, importer, sheets, label]);
 
   const confirm = () => {
-    if (!preview.result) return;
+    if (!preview.result || !label) return;
     dispatch({
       type: 'applyImport',
-      connection: { id: connectionId, label: importer.label },
+      connection: { id: connectionId, label },
       result: preview.result,
       today: today(),
-      targetAccountId: target || undefined,
+      targetAccountId: target,
     });
     onDone(`${file.name}: ${preview.stats!.added} transazioni importate.`);
   };
@@ -165,7 +179,8 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
         </p>
         <Field label="Conto di destinazione">
           <select className="input" value={target} onChange={(e) => setTarget(e.target.value)}>
-            <option value="">{linked ? `${linked.name} (usato negli import precedenti)` : `Nuovo conto «${importer.label}»`}</option>
+            {linked && <option value={linked.id}>{linked.name} (usato negli import precedenti)</option>}
+            <option value={NEW_ACCOUNT}>Nuovo conto</option>
             {data.accounts
               .filter((a) => a.id !== linked?.id)
               .map((a) => (
@@ -175,6 +190,11 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
               ))}
           </select>
         </Field>
+        {target === NEW_ACCOUNT && (
+          <Field label="Nome del nuovo conto">
+            <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} />
+          </Field>
+        )}
         {importer.needsCashBalance && (
           <label className="check">
             <input type="checkbox" checked={balanceCash} onChange={(e) => setBalanceCash(e.target.checked)} />

@@ -82,11 +82,16 @@ solo le novità.
 |---|---|
 | **Fineco** (consigliato) | Account → Movimenti del conto: filtro dall'apertura del conto a oggi → Esporta Excel. Contiene liquidità, imposte, compravendite, rimborsi e proventi. |
 | Fineco (alternativa) | Account → Report → Ordini e contabili → Titoli → Ricerca avanzata → Esporta in Excel ("Movimenti Dossier Titoli", con ISIN e commissioni ma senza liquidità). |
+| **Qualsiasi altro broker** (es. Directa) | Un CSV/Excel con almeno le colonne *Data*, *Tipo operazione* e *Importo* (o *Quantità* e *Prezzo*). Riconosciute anche *Descrizione*, *ISIN* (anche tra parentesi nella descrizione), *Commissioni*, *ID operazione* e *Saldo*: se c'è il saldo progressivo, la liquidità viene allineata. Tipi riconosciuti: acquisto/compra/buy, vendita/vendi/sell, dividendo/cedola, ritenuta, interessi, commissioni/imposte/bollo, bonifico/versamento/prelievo. |
 
 Obbligazioni e titoli di Stato usano quantità nominale e prezzo in percentuale (come nel portafoglio Fineco).
 I file non contengono i prezzi correnti: aggiornali nella pagina Strumenti.
 
-In arrivo: Directa, Degiro, Trade Republic e Scalable Capital.
+I CSV vengono letti come testo: le date italiane (gg/mm/aaaa) restano tali, i numeri possono usare la virgola o il
+punto decimale e i file salvati da Excel con codifica Windows sono supportati. Nell'anteprima puoi scegliere il conto
+di destinazione o crearne uno nuovo (per il CSV generico il nome parte dal nome del file).
+
+In arrivo: lettori dedicati per Degiro, Trade Republic e Scalable Capital.
 
 ## Avvio da terminale
 

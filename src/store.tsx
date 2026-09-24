@@ -83,9 +83,21 @@ function reducer(state: AppData, action: Action): AppData {
   }
 }
 
-/** Collega un conto esistente alla fonte di import, così `mergeSync` lo usa come destinazione. */
+/** Valore speciale di destinazione: importa in un conto nuovo. */
+export const NEW_ACCOUNT = '__nuovo__';
+
+/**
+ * Collega un conto esistente alla fonte di import, così `mergeSync` lo usa come destinazione.
+ * Con NEW_ACCOUNT scollega la fonte da ogni conto: `mergeSync` ne creerà uno nuovo.
+ */
 export function withTarget(state: AppData, connectionId: string, targetAccountId?: string): AppData {
   if (!targetAccountId) return state;
+  if (targetAccountId === NEW_ACCOUNT) {
+    return {
+      ...state,
+      accounts: state.accounts.map((a) => (a.connectionId === connectionId ? { ...a, connectionId: undefined } : a)),
+    };
+  }
   return {
     ...state,
     accounts: state.accounts.map((a) =>

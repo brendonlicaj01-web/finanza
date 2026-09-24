@@ -27,7 +27,7 @@ export function cellDate(v: unknown): string {
   return '';
 }
 
-const norm = (s: string) =>
+export const norm = (s: string) =>
   s
     .toLowerCase()
     .normalize('NFD')
@@ -101,4 +101,11 @@ export function cashMirror(tx: SyncTx, multiplier = 1): SyncTx | undefined {
     fees: 0,
     note: amount < 0 ? 'Addebito da conto corrente (automatico)' : 'Accredito su conto corrente (automatico)',
   };
+}
+
+/** Nome di conto dal nome del file: "directa_movimenti_2026.csv" → "Directa" (salta codici e date). */
+export function nameFromFile(fileName: string): string {
+  const tokens = fileName.replace(/\.[^.]+$/, '').split(/[_\-\s.]+/);
+  const word = tokens.find((t) => /^[a-zà-ù]{3,}$/i.test(t)) ?? 'Conto importato';
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
