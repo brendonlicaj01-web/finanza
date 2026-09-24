@@ -16,7 +16,8 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.
 - **Report annuale**: plus/minusvalenze realizzate, proventi, costi, versamenti e prelievi per anno.
 - **Collegamenti**: sincronizzazione automatica di operazioni, dividendi, depositi, saldi e prezzi da
-  **Interactive Brokers** (Flex Web Service), **eToro** (API pubblica), **Binance**, **Kraken**, **Coinbase**,
+  **Interactive Brokers** (Flex Web Service), **eToro** (API pubblica), **Scalable Capital** (CLI ufficiale),
+  **Binance**, **Kraken**, **Coinbase**,
   **Bitpanda** (chiavi API di sola lettura) e dei **conti bancari** via open banking (Enable Banking).
   Parte da sola all'apertura dell'app.
 - **Impostazioni**: valuta di riferimento, tema chiaro/scuro, tracciamento della liquidità, backup/ripristino JSON,
@@ -56,6 +57,15 @@ broker ed exchange.
   prezzi. Gli importi eToro sono in dollari e vengono convertiti in euro al cambio del giorno; le posizioni con leva
   o short (CFD) sono escluse.
 
+### Scalable Capital (CLI ufficiale)
+
+1. Sul sito Scalable (web): Profilo → Sicurezza → **Agentic Investing** → attiva **Scalable CLI**.
+2. Installa il CLI ufficiale da [github.com/ScalableCapital/scalable-cli](https://github.com/ScalableCapital/scalable-cli)
+   (Releases, o `brew install scalable-cli` su Mac).
+3. Nel terminale: `sc login --local-read-only` e completa tu l'accesso.
+4. In Finanza → Collegamenti → Scalable Capital → Collega. L'app esegue solo comandi di lettura (`holdings`,
+   `transactions`, `cash-breakdown`) da un elenco fisso nel codice, senza shell: non può inviare ordini.
+
 ### Conti bancari (Enable Banking)
 
 1. Registrati gratis su [enablebanking.com](https://enablebanking.com) → Control Panel → nuova applicazione
@@ -94,7 +104,7 @@ I CSV vengono letti come testo: le date italiane (gg/mm/aaaa) restano tali, i nu
 punto decimale e i file salvati da Excel con codifica Windows sono supportati. Nell'anteprima puoi scegliere il conto
 di destinazione o crearne uno nuovo (per il CSV generico il nome parte dal nome del file).
 
-In arrivo: Scalable Capital tramite il suo CLI ufficiale.
+Scalable Capital si collega in automatico tramite il suo CLI ufficiale (vedi sopra).
 
 ## Avvio da terminale
 
@@ -129,7 +139,7 @@ server/
   plugin.ts          monta l'API locale /api dentro il server di Vite
   api.ts             endpoint: fonti, collegamenti, sincronizzazione, autorizzazione bancaria
   store.ts           archivio locale delle credenziali (~/.finanza)
-  providers/         Interactive Brokers, eToro, exchange crypto (ccxt), Bitpanda, Enable Banking
+  providers/         Interactive Brokers, eToro, Scalable (CLI), exchange crypto (ccxt), Bitpanda, Enable Banking
 ```
 
 ## Note
