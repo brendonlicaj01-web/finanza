@@ -1,0 +1,26 @@
+{
+  "name": "finanza",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "App per gestire le proprie posizioni finanziarie: portafogli, transazioni, rendimenti e allocazione.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.1"
+  }
+}
