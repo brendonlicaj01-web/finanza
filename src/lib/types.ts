@@ -31,6 +31,8 @@ export interface Account {
   name: string;
   kind: AccountKind;
   note?: string;
+  /** Collegamento automatico (broker/exchange) da cui arrivano i dati del conto. */
+  connectionId?: string;
 }
 
 export interface Asset {
@@ -44,6 +46,7 @@ export interface Asset {
   priceUpdatedAt?: string;
   /** Aliquota fiscale sulle plusvalenze, in percentuale (26 standard, 12.5 titoli di Stato). */
   taxRate: number;
+  isin?: string;
 }
 
 export type TxType =
@@ -84,6 +87,8 @@ export interface Transaction {
   amount?: number;
   fees: number;
   note?: string;
+  /** Identificativo univoco presso la fonte esterna: evita duplicati nelle sincronizzazioni. */
+  externalId?: string;
 }
 
 export interface Snapshot {
@@ -98,6 +103,10 @@ export interface Settings {
   currency: string;
   /** Se attivo, la liquidità dei conti viene calcolata dalle transazioni. */
   trackCash: boolean;
+  /** Sincronizza i collegamenti automaticamente all'apertura dell'app. */
+  autoSync: boolean;
+  /** Ore minime tra due sincronizzazioni automatiche dello stesso collegamento. */
+  autoSyncHours: number;
 }
 
 export interface AppData {
@@ -115,5 +124,5 @@ export const emptyData = (): AppData => ({
   assets: [],
   transactions: [],
   snapshots: [],
-  settings: { currency: 'EUR', trackCash: true },
+  settings: { currency: 'EUR', trackCash: true, autoSync: true, autoSyncHours: 6 },
 });

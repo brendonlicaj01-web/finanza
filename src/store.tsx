@@ -4,8 +4,10 @@ import { emptyData } from './lib/types';
 import { loadData, saveData } from './lib/storage';
 import { computePortfolio, type PortfolioResult } from './lib/portfolio';
 import { setCurrency, today } from './lib/format';
+import { mergeSync } from './lib/sync';
+import type { SyncResult } from './lib/sync-types';
 
-type Action =
+export type Action =
   | { type: 'upsertAccount'; account: Account }
   | { type: 'deleteAccount'; id: string }
   | { type: 'upsertAsset'; asset: Asset }
@@ -15,6 +17,7 @@ type Action =
   | { type: 'deleteTransaction'; id: string }
   | { type: 'updateSettings'; settings: Partial<Settings> }
   | { type: 'replace'; data: AppData }
+  | { type: 'applySync'; connection: { id: string; label: string }; result: SyncResult; today: string }
   | { type: 'reset' };
 
 function upsert<T extends { id: string }>(list: T[], item: T): T[] {
@@ -62,6 +65,8 @@ function reducer(state: AppData, action: Action): AppData {
       return { ...state, settings: { ...state.settings, ...action.settings } };
     case 'replace':
       return action.data;
+    case 'applySync':
+      return mergeSync(state, action.connection, action.result, action.today).data;
     case 'reset':
       return emptyData();
   }

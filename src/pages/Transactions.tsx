@@ -155,10 +155,14 @@ export function Transactions() {
                       <td>
                         {asset && <div className="cell-title">{asset.symbol}</div>}
                         <div className="cell-sub">
-                          {TRADE_TX.includes(t.type)
-                            ? `${qty(t.quantity ?? 0)} × ${price(t.price ?? 0)}`
-                            : t.note || ''}
-                          {t.fees > 0 && ` · comm. ${money(t.fees)}`}
+                          {[
+                            TRADE_TX.includes(t.type) ? `${qty(t.quantity ?? 0)} × ${price(t.price ?? 0)}` : '',
+                            t.note,
+                            t.fees > 0 ? `comm. ${money(t.fees)}` : '',
+                            t.externalId ? 'importata' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </div>
                       </td>
                       <td className="hide-mobile">{accounts.get(t.accountId)?.name}</td>

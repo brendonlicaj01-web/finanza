@@ -80,6 +80,33 @@ export function Settings() {
               </span>
             </span>
           </label>
+          <label className="check full">
+            <input
+              type="checkbox"
+              checked={data.settings.autoSync}
+              onChange={(e) => dispatch({ type: 'updateSettings', settings: { autoSync: e.target.checked } })}
+            />
+            <span>
+              Sincronizza automaticamente i collegamenti all'apertura dell'app
+              <br />
+              <span className="small muted">Broker ed exchange configurati nella pagina Collegamenti.</span>
+            </span>
+          </label>
+          <Field label="Intervallo minimo tra le sincronizzazioni automatiche">
+            <select
+              className="input"
+              value={data.settings.autoSyncHours}
+              disabled={!data.settings.autoSync}
+              onChange={(e) =>
+                dispatch({ type: 'updateSettings', settings: { autoSyncHours: Number(e.target.value) } })
+              }
+            >
+              <option value={0}>Ogni volta che apro l'app</option>
+              <option value={1}>1 ora</option>
+              <option value={6}>6 ore</option>
+              <option value={24}>1 giorno</option>
+            </select>
+          </Field>
         </div>
       </Card>
 

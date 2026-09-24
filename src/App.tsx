@@ -6,9 +6,19 @@ import { Assets } from './pages/Assets';
 import { Accounts } from './pages/Accounts';
 import { Reports } from './pages/Reports';
 import { Settings } from './pages/Settings';
+import { Connections } from './pages/Connections';
+import { useSync } from './sync';
 import { Icon } from './components/ui';
 
-export type Page = 'panoramica' | 'posizioni' | 'transazioni' | 'strumenti' | 'conti' | 'report' | 'impostazioni';
+export type Page =
+  | 'panoramica'
+  | 'posizioni'
+  | 'transazioni'
+  | 'strumenti'
+  | 'conti'
+  | 'collegamenti'
+  | 'report'
+  | 'impostazioni';
 
 const NAV: { page: Page; label: string; icon: string }[] = [
   { page: 'panoramica', label: 'Panoramica', icon: 'dashboard' },
@@ -16,6 +26,7 @@ const NAV: { page: Page; label: string; icon: string }[] = [
   { page: 'transazioni', label: 'Transazioni', icon: 'transactions' },
   { page: 'strumenti', label: 'Strumenti', icon: 'assets' },
   { page: 'conti', label: 'Conti', icon: 'accounts' },
+  { page: 'collegamenti', label: 'Collegamenti', icon: 'link' },
   { page: 'report', label: 'Report', icon: 'reports' },
   { page: 'impostazioni', label: 'Impostazioni', icon: 'settings' },
 ];
@@ -27,6 +38,7 @@ function pageFromHash(): Page {
 
 export function App() {
   const [page, setPage] = useState<Page>(pageFromHash);
+  const { busy } = useSync();
 
   useEffect(() => {
     const onHash = () => setPage(pageFromHash());
@@ -64,6 +76,11 @@ export function App() {
           Finanza
         </div>
         {nav}
+        {busy && (
+          <div className="sync-status small muted" role="status">
+            <Icon name="sync" size={14} /> Sincronizzazione in corso…
+          </div>
+        )}
       </nav>
       <main className="main">
         {page === 'panoramica' && <Dashboard go={go} />}
@@ -71,6 +88,7 @@ export function App() {
         {page === 'transazioni' && <Transactions />}
         {page === 'strumenti' && <Assets />}
         {page === 'conti' && <Accounts />}
+        {page === 'collegamenti' && <Connections />}
         {page === 'report' && <Reports />}
         {page === 'impostazioni' && <Settings />}
       </main>

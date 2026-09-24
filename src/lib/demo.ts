@@ -7,7 +7,7 @@ export function demoData(todayIso: string): AppData {
 
   const data: AppData = {
     version: 1,
-    settings: { currency: 'EUR', trackCash: true },
+    settings: { currency: 'EUR', trackCash: true, autoSync: true, autoSyncHours: 6 },
     accounts: [
       { id: 'acc-broker', name: 'Broker principale', kind: 'broker' },
       { id: 'acc-banca', name: 'Conto deposito', kind: 'banca' },
