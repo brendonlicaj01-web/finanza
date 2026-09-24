@@ -23,6 +23,8 @@ export interface FileImporter {
   howTo: string;
   /** Il file non contiene la liquidità: di default si bilanciano i movimenti. */
   needsCashBalance: boolean;
+  /** Il broker esporta più file da importare insieme (es. OKX: Trading + Funding). */
+  multiFile?: boolean;
   detect(sheets: Sheet[]): boolean;
   parse(sheets: Sheet[], options: ImportOptions): SyncResult;
 }

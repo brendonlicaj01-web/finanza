@@ -82,6 +82,7 @@ solo le novità.
 |---|---|
 | **Fineco** (consigliato) | Account → Movimenti del conto: filtro dall'apertura del conto a oggi → Esporta Excel. Contiene liquidità, imposte, compravendite, rimborsi e proventi. |
 | Fineco (alternativa) | Account → Report → Ordini e contabili → Titoli → Ricerca avanzata → Esporta in Excel ("Movimenti Dossier Titoli", con ISIN e commissioni ma senza liquidità). |
+| **OKX** | Cronologia del conto **Trading** e del conto **Funding** (due CSV): trascinali insieme. Le compravendite spot sono aggregate per ordine; i trasferimenti interni (Trading ↔ Funding, staking, Simple Earn) non vengono contati; le crypto depositate da wallet esterni entrano al valore in euro del giorno; i rendimenti (yield, staking, premi) sono proventi e la moneta ricevuta entra a quel valore; OKSOL è contato come SOL. |
 | **Qualsiasi altro broker** (es. Directa) | Un CSV/Excel con almeno le colonne *Data*, *Tipo operazione* e *Importo* (o *Quantità* e *Prezzo*). Riconosciute anche *Descrizione*, *ISIN* (anche tra parentesi nella descrizione), *Commissioni*, *ID operazione* e *Saldo*: se c'è il saldo progressivo, la liquidità viene allineata. Tipi riconosciuti: acquisto/compra/buy, vendita/vendi/sell, dividendo/cedola, ritenuta, interessi, commissioni/imposte/bollo, bonifico/versamento/prelievo. |
 
 Obbligazioni e titoli di Stato usano quantità nominale e prezzo in percentuale (come nel portafoglio Fineco).

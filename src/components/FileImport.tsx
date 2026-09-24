@@ -10,9 +10,22 @@ import { Card, Field, Icon, Modal } from './ui';
 const TX_LABELS = new Map(TX_TYPES.map((t) => [t.value, t.label]));
 
 interface Pending {
-  file: File;
+  files: File[];
   importer: FileImporter;
   sheets: Sheet[];
+}
+
+/** Aggiunge alla coda; i file di broker "multi-file" (es. OKX Trading + Funding) vengono uniti in un solo import. */
+function enqueue(queue: Pending[], found: Pending[]): Pending[] {
+  const out = queue.map((p) => ({ ...p }));
+  for (const f of found) {
+    const same = f.importer.multiFile && out.find((p) => p.importer.id === f.importer.id);
+    if (same) {
+      same.files = [...same.files, ...f.files];
+      same.sheets = [...same.sheets, ...f.sheets];
+    } else out.push(f);
+  }
+  return out;
 }
 
 const slug = (s: string) =>
@@ -40,7 +53,7 @@ export function FileImport() {
       try {
         const sheets = await readSheets(file);
         const importer = detectImporter(sheets);
-        if (importer) found.push({ file, importer, sheets });
+        if (importer) found.push({ files: [file], importer, sheets });
         else problems.push(`"${file.name}": formato non riconosciuto.`);
       } catch (e) {
         problems.push(`"${file.name}": ${(e as Error).message}`);
@@ -48,7 +61,7 @@ export function FileImport() {
     }
     // Prima i file dei titoli, poi quelli del conto: così i controlli anti-doppione funzionano.
     found.sort((a, b) => importers.indexOf(b.importer) - importers.indexOf(a.importer));
-    setQueue((q) => [...q, ...found]);
+    setQueue((q) => enqueue(q, found));
     if (problems.length) setError(problems.join(' '));
   };
 
@@ -109,7 +122,7 @@ export function FileImport() {
       </details>
       {queue[0] && (
         <ImportPreview
-          key={queue[0].file.name + queue[0].file.lastModified}
+          key={queue[0].files.map((f) => f.name + f.lastModified).join('|')}
           pending={queue[0]}
           onDone={(msg) => {
             if (msg) setDone(msg);
@@ -123,10 +136,11 @@ export function FileImport() {
 
 function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message?: string) => void }) {
   const { data, dispatch } = useStore();
-  const { importer, sheets, file } = pending;
+  const { importer, sheets, files } = pending;
+  const names = files.map((f) => f.name).join(', ');
   // Per il CSV generico il nome del conto parte dal nome del file ("directa_2026.csv" → "Directa") e distingue
   // i broker: reimportando un file dello stesso broker si aggiorna lo stesso conto.
-  const defaultName = importer.id === 'generic' ? nameFromFile(file.name) : importer.label;
+  const defaultName = importer.id === 'generic' ? nameFromFile(files[0].name) : importer.label;
   const connectionId = `file:${slug(importer.id === 'generic' ? `generic-${defaultName}` : importer.label)}`;
   const linked = data.accounts.find((a) => a.connectionId === connectionId);
   const [target, setTarget] = useState<string>(linked?.id ?? NEW_ACCOUNT);
@@ -163,7 +177,7 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
       today: today(),
       targetAccountId: target,
     });
-    onDone(`${file.name}: ${preview.stats!.added} transazioni importate.`);
+    onDone(`${names}: ${preview.stats!.added} transazioni importate.`);
   };
 
   const assetName = (id?: string) => (id ? (preview.assets?.find((a) => a.id === id)?.symbol ?? '') : '');
@@ -175,7 +189,7 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
     <Modal title={`Importa ${importer.label}`} onClose={() => onDone()}>
       <div className="stack" style={{ gap: 12 }}>
         <p className="small muted" style={{ margin: 0 }}>
-          File: <strong>{file.name}</strong>
+          File: <strong>{names}</strong>
         </p>
         <Field label="Conto di destinazione">
           <select className="input" value={target} onChange={(e) => setTarget(e.target.value)}>
