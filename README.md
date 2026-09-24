@@ -24,9 +24,9 @@ Richiede Node.js 20.19 o successivo.
 
 ```bash
 npm install
-npm run dev        # sviluppo su http://localhost:5173
+npm run dev        # sviluppo su http://localhost:3210 (si apre da solo nel browser)
 npm run build      # build di produzione in dist/
-npm run preview    # anteprima della build
+npm run preview    # anteprima della build su http://localhost:3211
 npm test           # test dei calcoli
 npm run typecheck
 ```
