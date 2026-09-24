@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { providers } from './providers/index.ts';
 import { ProviderError } from './providers/types.ts';
-import { store, toInfo } from './store.ts';
+import { randomBytes } from 'node:crypto';
+import { store, toInfo, type StoredConnection } from './store.ts';
+import type { Bank } from './providers/types.ts';
 
 type Next = (err?: unknown) => void;
 
@@ -37,9 +39,50 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-function secretKeys(providerId: string): Set<string> {
-  const p = providers.find((x) => x.id === providerId);
-  return new Set(p?.fields.filter((f) => f.secret).map((f) => f.key) ?? []);
+function info(c: StoredConnection) {
+  const p = providers.find((x) => x.id === c.provider);
+  return toInfo(c, p?.fields ?? [], p?.auth?.status(c.credentials));
+}
+
+/** Autorizzazioni bancarie in corso: state → collegamento (scadono dopo 30 minuti). */
+const pending = new Map<string, { connectionId: string; expires: number }>();
+
+function isLocalUrl(u: string) {
+  try {
+    const url = new URL(u);
+    return ['localhost', '127.0.0.1'].includes(url.hostname) && url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+async function completeAuth(state: string, code: string) {
+  const entry = pending.get(state);
+  if (!entry || entry.expires < Date.now()) {
+    throw new HttpError(400, 'Autorizzazione scaduta o non riconosciuta: riavviala dall\'app.');
+  }
+  const conn = await store.get(entry.connectionId);
+  if (!conn) throw new HttpError(404, 'Collegamento non trovato.');
+  const p = provider(conn.provider);
+  if (!p.auth) throw new HttpError(400, 'Questa fonte non richiede autorizzazione.');
+  const extra = await p.auth.completeAuth(conn.credentials, code);
+  pending.delete(state);
+  const updated = await store.update(conn.id, { credentials: { ...conn.credentials, ...extra } });
+  return updated!;
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
+
+function page(res: ServerResponse, ok: boolean, message: string) {
+  res.statusCode = ok ? 200 : 400;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(`<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finanza</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;padding:16px;background:#f9f9f7;color:#0b0b0b}
+@media(prefers-color-scheme:dark){body{background:#0d0d0d;color:#fff}}main{max-width:420px;text-align:center}a{color:#2a78d6}</style></head>
+<body><main><h1>${ok ? '✓ Banca collegata' : '✕ Collegamento non riuscito'}</h1><p>${escapeHtml(message)}</p>
+<p><a href="/#collegamenti">Torna a Finanza</a></p></main>${ok ? '<script>setTimeout(()=>{window.close()},1500)</script>' : ''}</body></html>`);
 }
 
 function provider(id: string) {
@@ -57,6 +100,20 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, next:
   const url = new URL(req.url ?? '/', 'http://localhost');
   const path = url.pathname.replace(/\/+$/, '') || '/';
   try {
+    // Ritorno dalla banca: è una normale navigazione del browser, protetta dal parametro "state".
+    if (req.method === 'GET' && path === '/oauth/callback') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state') ?? '';
+      const error = url.searchParams.get('error_description') || url.searchParams.get('error');
+      if (error || !code) return page(res, false, error ? `La banca ha risposto: ${error}` : 'Codice mancante.');
+      try {
+        await completeAuth(state, code);
+        return page(res, true, 'Accesso autorizzato. Puoi chiudere questa finestra e tornare all\'app.');
+      } catch (e) {
+        return page(res, false, (e as Error).message);
+      }
+    }
+
     if (req.headers['x-finanza'] !== '1') throw new HttpError(403, 'Richiesta non autorizzata.');
     const method = req.method ?? 'GET';
 
@@ -66,13 +123,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, next:
       return send(
         res,
         200,
-        providers.map(({ test: _t, sync: _s, ...info }) => info),
+        providers.map(({ test: _t, sync: _s, auth: _a, ...rest }) => rest),
       );
     }
 
     if (method === 'GET' && path === '/connections') {
       const all = await store.list();
-      return send(res, 200, all.map((c) => toInfo(c, secretKeys(c.provider))));
+      return send(res, 200, all.map(info));
     }
 
     if (method === 'POST' && path === '/connections') {
@@ -88,18 +145,58 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, next:
       await p.test(credentials);
       const label = String(body.label ?? '').trim() || p.label;
       const saved = await store.add({ provider: p.id, label, credentials });
-      return send(res, 201, toInfo(saved, secretKeys(p.id)));
+      return send(res, 201, info(saved));
     }
 
-    const m = path.match(/^\/connections\/([\w-]+)(\/sync)?$/);
+    const m = path.match(/^\/connections\/([\w-]+)(\/sync|\/banks|\/authorize|\/authorize\/complete)?$/);
     if (m) {
       const conn = await store.get(m[1]);
       if (!conn) throw new HttpError(404, 'Collegamento non trovato.');
-      if (method === 'DELETE' && !m[2]) {
+      const action = m[2];
+
+      if (action === '/banks' && method === 'GET') {
+        const p = provider(conn.provider);
+        if (!p.auth) throw new HttpError(400, 'Questa fonte non richiede autorizzazione.');
+        return send(res, 200, await p.auth.listBanks(conn.credentials, url.searchParams.get('country') || 'IT'));
+      }
+
+      if (action === '/authorize' && method === 'POST') {
+        const p = provider(conn.provider);
+        if (!p.auth) throw new HttpError(400, 'Questa fonte non richiede autorizzazione.');
+        const body = await readJson(req);
+        const bank = body.bank as Bank | undefined;
+        const redirectUrl = String(body.redirectUrl ?? '');
+        if (!bank?.name || !bank.country) throw new HttpError(400, 'Scegli una banca.');
+        if (!isLocalUrl(redirectUrl)) throw new HttpError(400, 'Indirizzo di ritorno non valido.');
+        const state = randomBytes(24).toString('base64url');
+        for (const [k, v] of pending) if (v.expires < Date.now()) pending.delete(k);
+        pending.set(state, { connectionId: conn.id, expires: Date.now() + 30 * 60_000 });
+        return send(res, 200, { url: await p.auth.startAuth(conn.credentials, bank, redirectUrl, state) });
+      }
+
+      if (action === '/authorize/complete' && method === 'POST') {
+        // Alternativa manuale: l'utente incolla l'indirizzo della pagina finale della banca.
+        const body = await readJson(req);
+        let pasted: URL;
+        try {
+          pasted = new URL(String(body.url ?? '').trim());
+        } catch {
+          throw new HttpError(400, 'Incolla l\'indirizzo completo della pagina (inizia con http).');
+        }
+        const code = pasted.searchParams.get('code');
+        const state = pasted.searchParams.get('state') ?? '';
+        if (!code) throw new HttpError(400, 'Nell\'indirizzo non c\'è il codice di autorizzazione.');
+        if (pending.get(state)?.connectionId !== conn.id) {
+          throw new HttpError(400, 'Questo indirizzo non corrisponde all\'autorizzazione in corso.');
+        }
+        return send(res, 200, info(await completeAuth(state, code)));
+      }
+
+      if (method === 'DELETE' && !action) {
         await store.remove(conn.id);
         return send(res, 200, { ok: true });
       }
-      if (method === 'POST' && m[2]) {
+      if (method === 'POST' && action === '/sync') {
         const body = await readJson(req);
         const p = provider(conn.provider);
         const full = body.full === true;
@@ -108,7 +205,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, next:
           since: full ? undefined : conn.lastSyncAt,
         });
         const updated = await store.update(conn.id, { lastSyncAt: new Date().toISOString() });
-        return send(res, 200, { result, connection: updated && toInfo(updated, secretKeys(p.id)) });
+        return send(res, 200, { result, connection: updated && info(updated) });
       }
     }
 

@@ -44,10 +44,18 @@ export function mask(value: string): string {
   return `${value.slice(0, 4)}••••${value.slice(-4)}`;
 }
 
-export function toInfo(c: StoredConnection, secretKeys: Set<string>): ConnectionInfo {
+/** Informazioni sicure da mandare al browser: solo i campi dichiarati, quelli segreti mascherati. */
+export function toInfo(
+  c: StoredConnection,
+  fields: { key: string; secret?: boolean }[],
+  auth?: ConnectionInfo['auth'],
+): ConnectionInfo {
   const masked: Record<string, string> = {};
-  for (const [k, v] of Object.entries(c.credentials)) masked[k] = secretKeys.has(k) ? mask(v) : v;
-  return { id: c.id, provider: c.provider, label: c.label, createdAt: c.createdAt, lastSyncAt: c.lastSyncAt, masked };
+  for (const f of fields) {
+    const v = c.credentials[f.key];
+    if (v) masked[f.key] = f.secret ? mask(v) : v;
+  }
+  return { id: c.id, provider: c.provider, label: c.label, createdAt: c.createdAt, lastSyncAt: c.lastSyncAt, masked, auth };
 }
 
 export const store = {

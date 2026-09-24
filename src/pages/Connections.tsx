@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { useSync } from '../sync';
-import type { ProviderInfo } from '../lib/sync-types';
+import { useEffect, useMemo, useState } from 'react';
+import { isReady, redirectUrl, useSync } from '../sync';
+import type { BankInfo, ConnectionInfo, ProviderInfo } from '../lib/sync-types';
 import { Card, Empty, Field, Icon, Modal, PageHead } from '../components/ui';
 
 const CATEGORIES: { id: ProviderInfo['category']; label: string }[] = [
@@ -8,6 +8,23 @@ const CATEGORIES: { id: ProviderInfo['category']; label: string }[] = [
   { id: 'crypto', label: 'Exchange crypto' },
   { id: 'banca', label: 'Banche' },
 ];
+
+const COUNTRIES = [
+  ['IT', 'Italia'],
+  ['DE', 'Germania'],
+  ['FR', 'Francia'],
+  ['ES', 'Spagna'],
+  ['NL', 'Paesi Bassi'],
+  ['BE', 'Belgio'],
+  ['AT', 'Austria'],
+  ['PT', 'Portogallo'],
+  ['IE', 'Irlanda'],
+  ['LU', 'Lussemburgo'],
+  ['FI', 'Finlandia'],
+  ['LT', 'Lituania'],
+];
+
+const DAY = 86_400_000;
 
 function when(iso?: string): string {
   if (!iso) return 'mai';
@@ -18,6 +35,7 @@ function when(iso?: string): string {
 export function Connections() {
   const { serverUp, providers, connections, status, busy, sync, syncAll, remove, refresh } = useSync();
   const [adding, setAdding] = useState<ProviderInfo | null>(null);
+  const [authorizing, setAuthorizing] = useState<ConnectionInfo | null>(null);
   const byId = new Map(providers.map((p) => [p.id, p]));
 
   if (serverUp === false) {
@@ -68,6 +86,7 @@ export function Connections() {
                     <div className="cell-sub">
                       {p?.label ?? c.provider} · ultimo aggiornamento {when(c.lastSyncAt)}
                     </div>
+                    {c.auth && <AuthLine auth={c.auth} />}
                     {st?.message && (
                       <div className={`small ${st.running ? 'muted' : st.ok ? 'pos' : 'neg'}`} role="status">
                         {st.running ? '⟳ ' : st.ok ? '✓ ' : '✕ '}
@@ -88,7 +107,12 @@ export function Connections() {
                     )}
                   </div>
                   <div className="row">
-                    <button className="btn" disabled={st?.running} onClick={() => void sync(c.id)}>
+                    {c.auth && (!c.auth.authorized || expiresSoon(c.auth.validUntil)) && (
+                      <button className="btn btn-primary" onClick={() => setAuthorizing(c)}>
+                        {c.auth.authorized ? 'Rinnova consenso' : 'Autorizza banca'}
+                      </button>
+                    )}
+                    <button className="btn" disabled={st?.running || !isReady(c)} onClick={() => void sync(c.id)}>
                       <Icon name="sync" /> Sincronizza
                     </button>
                     <button
@@ -144,14 +168,202 @@ export function Connections() {
         utente) e non vengono mai mostrate per intero. Usa sempre chiavi con permessi di <strong>sola lettura</strong>.
       </p>
 
-      {adding && <AddConnection provider={adding} onClose={() => setAdding(null)} />}
+      {adding && (
+        <AddConnection
+          provider={adding}
+          onClose={() => setAdding(null)}
+          onCreated={(c) => {
+            setAdding(null);
+            if (adding.requiresAuth) setAuthorizing(c);
+            else void sync(c.id);
+          }}
+        />
+      )}
+      {authorizing && <AuthorizeBank connection={authorizing} onClose={() => setAuthorizing(null)} />}
     </div>
   );
 }
 
-function AddConnection({ provider, onClose }: { provider: ProviderInfo; onClose: () => void }) {
-  const { add, sync } = useSync();
-  const [values, setValues] = useState<Record<string, string>>({});
+function expiresSoon(iso?: string) {
+  return !!iso && Date.parse(iso) - Date.now() < 14 * DAY;
+}
+
+function AuthLine({ auth }: { auth: NonNullable<ConnectionInfo['auth']> }) {
+  if (!auth.authorized) {
+    return (
+      <div className="small neg">
+        ✕ {auth.validUntil ? 'Consenso della banca scaduto' : 'Accesso alla banca da autorizzare'}
+      </div>
+    );
+  }
+  const until = auth.validUntil ? new Date(auth.validUntil).toLocaleDateString('it-IT') : undefined;
+  return (
+    <div className={`small ${expiresSoon(auth.validUntil) ? 'neg' : 'muted'}`}>
+      {auth.bank ? `${auth.bank} · ` : ''}
+      {until ? `consenso valido fino al ${until}` : 'consenso attivo'}
+      {expiresSoon(auth.validUntil) && ' — in scadenza, rinnovalo'}
+    </div>
+  );
+}
+
+function AuthorizeBank({ connection, onClose }: { connection: ConnectionInfo; onClose: () => void }) {
+  const { listBanks, authorize, completeAuth, refresh, connections, sync } = useSync();
+  const [country, setCountry] = useState('IT');
+  const [banks, setBanks] = useState<BankInfo[] | null>(null);
+  const [query, setQuery] = useState('');
+  const [chosen, setChosen] = useState<BankInfo | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const [pasted, setPasted] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setBanks(null);
+    setChosen(null);
+    listBanks(connection.id, country)
+      .then((b) => alive && setBanks(b))
+      .catch((e) => alive && (setError((e as Error).message), setBanks([])));
+    return () => {
+      alive = false;
+    };
+  }, [connection.id, country, listBanks]);
+
+  // Mentre l'utente è sul sito della banca, controlla periodicamente se l'autorizzazione è arrivata.
+  const current = connections.find((c) => c.id === connection.id);
+  const wasAuthorized = useMemo(() => connection.auth?.validUntil, [connection]);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => void refresh(), 3000);
+    return () => clearInterval(t);
+  }, [waiting, refresh]);
+  useEffect(() => {
+    if (waiting && current?.auth?.authorized && current.auth.validUntil !== wasAuthorized) {
+      onClose();
+      void sync(connection.id);
+    }
+  }, [waiting, current, wasAuthorized, onClose, sync, connection.id]);
+
+  const filtered = (banks ?? []).filter((b) => b.name.toLowerCase().includes(query.trim().toLowerCase()));
+
+  const go = async () => {
+    if (!chosen) return;
+    setError('');
+    // La finestra va aperta subito (nel clic), altrimenti il browser la blocca.
+    const win = window.open('', '_blank');
+    try {
+      const url = await authorize(connection.id, chosen);
+      if (win) win.location.href = url;
+      else window.location.href = url;
+      setWaiting(true);
+    } catch (e) {
+      win?.close();
+      setError((e as Error).message);
+    }
+  };
+
+  const manual = async () => {
+    setError('');
+    try {
+      await completeAuth(connection.id, pasted);
+      onClose();
+      void sync(connection.id);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <Modal title={`Autorizza la banca · ${connection.label}`} onClose={onClose}>
+      {!waiting ? (
+        <div className="stack" style={{ gap: 12 }}>
+          <div className="form-grid">
+            <Field label="Paese">
+              <select className="input" value={country} onChange={(e) => setCountry(e.target.value)}>
+                {COUNTRIES.map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Cerca la banca">
+              <input className="input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="es. Intesa" />
+            </Field>
+          </div>
+          <div className="bank-list" role="listbox" aria-label="Banche">
+            {banks === null && <p className="small muted">Caricamento delle banche…</p>}
+            {banks !== null && filtered.length === 0 && <p className="small muted">Nessuna banca trovata.</p>}
+            {filtered.slice(0, 80).map((b) => (
+              <button
+                key={`${b.country}-${b.name}`}
+                type="button"
+                role="option"
+                aria-selected={chosen?.name === b.name}
+                className="bank-item"
+                onClick={() => setChosen(b)}
+              >
+                {b.logo && <img src={b.logo} alt="" width={20} height={20} loading="lazy" />}
+                {b.name}
+              </button>
+            ))}
+          </div>
+          <p className="small muted">
+            Verrai portato sul sito della tua banca per confermare l'accesso in sola lettura. Al termine la finestra si
+            chiude da sola e la sincronizzazione parte in automatico.
+          </p>
+        </div>
+      ) : (
+        <div className="stack" style={{ gap: 12 }}>
+          <p>
+            Completa l'accesso nella finestra di <strong>{chosen?.name}</strong>. Questa pagina si aggiorna da sola.
+          </p>
+          <Field
+            label="Non torna in automatico? Incolla qui l'indirizzo della pagina finale"
+            hint="Serve se la banca ti ha mandato a una pagina che non si apre: copia l'indirizzo dalla barra del browser."
+          >
+            <input className="input mono" value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder={`${redirectUrl()}?code=…`} />
+          </Field>
+        </div>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="modal-foot">
+        <span />
+        <div className="row">
+          <button type="button" className="btn" onClick={onClose}>
+            Annulla
+          </button>
+          {!waiting ? (
+            <button type="button" className="btn btn-primary" disabled={!chosen} onClick={() => void go()}>
+              Vai alla banca
+            </button>
+          ) : (
+            <button type="button" className="btn btn-primary" disabled={!pasted.trim()} onClick={() => void manual()}>
+              Conferma
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AddConnection({
+  provider,
+  onClose,
+  onCreated,
+}: {
+  provider: ProviderInfo;
+  onClose: () => void;
+  onCreated: (c: ConnectionInfo) => void;
+}) {
+  const { add } = useSync();
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(provider.fields.filter((f) => f.options?.length).map((f) => [f.key, f.options![0].value])),
+  );
   const [label, setLabel] = useState(provider.label);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -163,9 +375,7 @@ function AddConnection({ provider, onClose }: { provider: ProviderInfo; onClose:
     setSaving(true);
     setError('');
     try {
-      const created = await add(provider.id, label, values);
-      onClose();
-      void sync(created.id);
+      onCreated(await add(provider.id, label, values));
     } catch (err) {
       setError((err as Error).message);
       setSaving(false);
@@ -177,7 +387,17 @@ function AddConnection({ provider, onClose }: { provider: ProviderInfo; onClose:
       <form onSubmit={submit} noValidate>
         <ol className="guide small">
           {provider.guide.map((g, i) => (
-            <li key={i}>{g}</li>
+            <li key={i}>
+              {g.includes('{redirectUrl}') ? (
+                <>
+                  {g.split('{redirectUrl}')[0]}
+                  <code>{redirectUrl()}</code>
+                  {g.split('{redirectUrl}')[1]}
+                </>
+              ) : (
+                g
+              )}
+            </li>
           ))}
         </ol>
         {provider.docsUrl && (
@@ -193,7 +413,19 @@ function AddConnection({ provider, onClose }: { provider: ProviderInfo; onClose:
           </Field>
           {provider.fields.map((f) => (
             <Field key={f.key} label={f.label} className="full">
-              {f.multiline ? (
+              {f.options ? (
+                <select
+                  className="input"
+                  value={values[f.key] ?? f.options[0]?.value}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                >
+                  {f.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : f.multiline ? (
                 <textarea
                   className="input mono"
                   rows={5}
@@ -229,7 +461,7 @@ function AddConnection({ provider, onClose }: { provider: ProviderInfo; onClose:
               Annulla
             </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Verifica…' : 'Collega e sincronizza'}
+              {saving ? 'Verifica…' : provider.requiresAuth ? 'Salva e scegli la banca' : 'Collega e sincronizza'}
             </button>
           </div>
         </div>

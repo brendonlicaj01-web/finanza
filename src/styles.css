@@ -763,6 +763,42 @@ code {
   }
 }
 
+.bank-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.bank-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.bank-item:hover {
+  background: var(--surface-2);
+}
+
+.bank-item[aria-selected='true'] {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.bank-item img {
+  border-radius: 4px;
+  object-fit: contain;
+}
+
 /* ---------- Mobile ---------- */
 
 .mobile-nav {

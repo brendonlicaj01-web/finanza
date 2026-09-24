@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './lib/api';
 import { mergeSync, type MergeStats } from './lib/sync';
-import type { ConnectionInfo, ProviderInfo, SyncResult } from './lib/sync-types';
+import type { BankInfo, ConnectionInfo, ProviderInfo, SyncResult } from './lib/sync-types';
 import { today } from './lib/format';
 import { useStore } from './store';
 
@@ -24,7 +24,18 @@ interface SyncCtx {
   remove(id: string): Promise<void>;
   sync(id: string, full?: boolean): Promise<void>;
   syncAll(): Promise<void>;
+  listBanks(id: string, country: string): Promise<BankInfo[]>;
+  /** Avvia l'autorizzazione bancaria e restituisce l'indirizzo della banca. */
+  authorize(id: string, bank: BankInfo): Promise<string>;
+  /** Completa a mano incollando l'indirizzo della pagina finale. */
+  completeAuth(id: string, url: string): Promise<void>;
 }
+
+/** Indirizzo a cui la banca rimanda dopo l'autorizzazione (da registrare presso Enable Banking). */
+export const redirectUrl = () => `${location.origin}/api/oauth/callback`;
+
+/** Il collegamento può essere sincronizzato (autorizzato, se serve)? */
+export const isReady = (c: ConnectionInfo) => !c.auth || c.auth.authorized;
 
 const Ctx = createContext<SyncCtx | null>(null);
 
@@ -96,7 +107,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   );
 
   const syncAll = useCallback(async () => {
-    for (const c of connsRef.current) await sync(c.id);
+    for (const c of connsRef.current) if (isReady(c)) await sync(c.id);
   }, [sync]);
 
   // Sincronizzazione automatica all'apertura, per i collegamenti non aggiornati di recente.
@@ -107,7 +118,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     const { autoSync, autoSyncHours } = dataRef.current.settings;
     if (!autoSync) return;
     const stale = connections.filter(
-      (c) => !c.lastSyncAt || Date.now() - Date.parse(c.lastSyncAt) > autoSyncHours * 3_600_000,
+      (c) => isReady(c) && (!c.lastSyncAt || Date.now() - Date.parse(c.lastSyncAt) > autoSyncHours * 3_600_000),
     );
     void (async () => {
       for (const c of stale) await sync(c.id);
@@ -125,10 +136,45 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setConnections((cs) => cs.filter((c) => c.id !== id));
   }, [setConnections]);
 
+  const listBanks = useCallback(
+    (id: string, country: string) => api<BankInfo[]>(`/connections/${id}/banks?country=${encodeURIComponent(country)}`),
+    [],
+  );
+
+  const authorize = useCallback(async (id: string, bank: BankInfo) => {
+    const r = await api<{ url: string }>(`/connections/${id}/authorize`, {
+      method: 'POST',
+      body: { bank, redirectUrl: redirectUrl() },
+    });
+    return r.url;
+  }, []);
+
+  const completeAuth = useCallback(
+    async (id: string, url: string) => {
+      const updated = await api<ConnectionInfo>(`/connections/${id}/authorize/complete`, { method: 'POST', body: { url } });
+      setConnections((cs) => cs.map((c) => (c.id === id ? updated : c)));
+    },
+    [setConnections],
+  );
+
   const busy = Object.values(status).some((s) => s.running);
   const value = useMemo(
-    () => ({ serverUp, providers, connections, status, busy, refresh, add, remove, sync, syncAll }),
-    [serverUp, providers, connections, status, busy, refresh, add, remove, sync, syncAll],
+    () => ({
+      serverUp,
+      providers,
+      connections,
+      status,
+      busy,
+      refresh,
+      add,
+      remove,
+      sync,
+      syncAll,
+      listBanks,
+      authorize,
+      completeAuth,
+    }),
+    [serverUp, providers, connections, status, busy, refresh, add, remove, sync, syncAll, listBanks, authorize, completeAuth],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

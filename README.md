@@ -16,8 +16,9 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.
 - **Report annuale**: plus/minusvalenze realizzate, proventi, costi, versamenti e prelievi per anno.
 - **Collegamenti**: sincronizzazione automatica di operazioni, dividendi, depositi, saldi e prezzi da
-  **Interactive Brokers** (Flex Web Service), **Binance**, **Kraken**, **Coinbase** e **Bitpanda**
-  (chiavi API di sola lettura). Parte da sola all'apertura dell'app.
+  **Interactive Brokers** (Flex Web Service), **eToro** (API pubblica), **Binance**, **Kraken**, **Coinbase**,
+  **Bitpanda** (chiavi API di sola lettura) e dei **conti bancari** via open banking (Enable Banking).
+  Parte da sola all'apertura dell'app.
 - **Impostazioni**: valuta di riferimento, tema chiaro/scuro, tracciamento della liquidità, backup/ripristino JSON,
   esportazione CSV delle transazioni (compatibile con Excel italiano), dati di esempio.
 
@@ -51,10 +52,26 @@ broker ed exchange.
   in euro al cambio del giorno. Su Binance lo storico si legge coppia per coppia: vengono lette le monete possedute
   più quelle indicate nel campo facoltativo.
 
-Per provare il flusso senza account reali: `FINANZA_MOCK=1 npm run dev` aggiunge un "Broker di prova".
+- **eToro**: posizioni reali (acquisti senza leva, anche delle copie CopyTrader), operazioni chiuse, liquidità e
+  prezzi. Gli importi eToro sono in dollari e vengono convertiti in euro al cambio del giorno; le posizioni con leva
+  o short (CFD) sono escluse.
 
-In arrivo: eToro, conti bancari via open banking (Enable Banking), import dei file di Fineco, Directa, Degiro,
-Trade Republic e Scalable Capital.
+### Conti bancari (Enable Banking)
+
+1. Registrati gratis su [enablebanking.com](https://enablebanking.com) → Control Panel → nuova applicazione
+   in ambiente **Production**, con redirect URL `http://localhost:3210/api/oauth/callback` (se l'app gira su un'altra
+   porta, usa quella). Genera la chiave nel browser: viene scaricato un file `.pem`.
+2. Premi **"Activate by linking accounts"** e collega i tuoi conti: in questa modalità gratuita l'app legge solo i
+   conti collegati da te.
+3. In Finanza → Collegamenti → Conti bancari: incolla ID applicazione e contenuto del `.pem`, scegli se importare
+   solo il saldo (consigliato) o anche i singoli movimenti, poi **Autorizza banca**: si apre il sito della banca e,
+   al termine, la sincronizzazione parte da sola. Se la pagina finale non torna all'app, puoi incollarne l'indirizzo.
+4. Il consenso dura fino a 180 giorni: l'app avvisa quando sta per scadere e propone **Rinnova consenso**.
+
+Per provare il flusso senza account reali: `FINANZA_MOCK=1 npm run dev` aggiunge un "Broker di prova" e una
+"Banca di prova" con autorizzazione simulata.
+
+In arrivo: import dei file di Fineco, Directa, Degiro, Trade Republic e Scalable Capital.
 
 ## Avvio da terminale
 
@@ -86,9 +103,9 @@ src/
   components/        componenti UI e grafici SVG
 server/
   plugin.ts          monta l'API locale /api dentro il server di Vite
-  api.ts             endpoint: fonti, collegamenti, sincronizzazione
+  api.ts             endpoint: fonti, collegamenti, sincronizzazione, autorizzazione bancaria
   store.ts           archivio locale delle credenziali (~/.finanza)
-  providers/         Interactive Brokers, exchange crypto (ccxt), Bitpanda
+  providers/         Interactive Brokers, eToro, exchange crypto (ccxt), Bitpanda, Enable Banking
 ```
 
 ## Note

@@ -52,6 +52,8 @@ export interface ProviderField {
   multiline?: boolean;
   placeholder?: string;
   optional?: boolean;
+  /** Se presente, il campo è una scelta tra queste opzioni (la prima è predefinita). */
+  options?: { value: string; label: string }[];
 }
 
 export interface ProviderInfo {
@@ -64,6 +66,15 @@ export interface ProviderInfo {
   guide: string[];
   docsUrl?: string;
   available: boolean;
+  /** Serve un'autorizzazione sul sito della banca dopo aver inserito le credenziali. */
+  requiresAuth?: boolean;
+}
+
+export interface BankInfo {
+  name: string;
+  country: string;
+  logo?: string;
+  maxConsentSeconds?: number;
 }
 
 export interface ConnectionInfo {
@@ -74,4 +85,6 @@ export interface ConnectionInfo {
   lastSyncAt?: string;
   /** Credenziali mascherate, mai i valori completi. */
   masked: Record<string, string>;
+  /** Stato dell'autorizzazione bancaria, per le fonti che la richiedono. */
+  auth?: { authorized: boolean; validUntil?: string; bank?: string };
 }

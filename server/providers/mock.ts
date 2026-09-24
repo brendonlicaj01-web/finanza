@@ -36,3 +36,67 @@ export const mock: Provider = {
     };
   },
 };
+
+/** Banca fittizia con flusso di autorizzazione simulato. Attiva solo con FINANZA_MOCK=1. */
+export const mockBank: Provider = {
+  id: 'mockbank',
+  label: 'Banca di prova',
+  category: 'banca',
+  description: 'Open banking simulato (solo con FINANZA_MOCK=1).',
+  available: true,
+  requiresAuth: true,
+  fields: [
+    { key: 'applicationId', label: 'ID applicazione (qualsiasi)' },
+    {
+      key: 'movements',
+      label: 'Cosa importare',
+      options: [
+        { value: 'saldo', label: 'Solo il saldo' },
+        { value: 'movimenti', label: 'Saldo e movimenti' },
+      ],
+    },
+  ],
+  guide: ['Redirect URL da registrare: {redirectUrl}'],
+  auth: {
+    async listBanks(_c, country) {
+      return [
+        { name: 'Banca Alfa', country },
+        { name: 'Banca Beta', country },
+      ];
+    },
+    async startAuth(_c, _bank, redirectUrl, state) {
+      // La "banca" rimanda subito indietro con un codice valido.
+      return `${redirectUrl}?code=codice-prova&state=${encodeURIComponent(state)}`;
+    },
+    async completeAuth(_c, code) {
+      if (code !== 'codice-prova') throw new ProviderError('Codice non valido.');
+      return {
+        sessionId: 'sessione-prova',
+        validUntil: new Date(Date.now() + 10 * 86_400_000).toISOString(),
+        bank: 'Banca Alfa',
+      };
+    },
+    status(c) {
+      return { authorized: !!c.sessionId, validUntil: c.validUntil, bank: c.bank };
+    },
+  },
+  async test() {},
+  async sync(c, { currency }) {
+    if (!c.sessionId) throw new ProviderError('Autorizza prima l\'accesso alla banca.');
+    return {
+      accountName: 'Banca Alfa',
+      accountKind: 'banca',
+      currency,
+      assets: [],
+      transactions:
+        c.movements === 'movimenti'
+          ? [
+              { externalId: 'mb:1', date: '2026-08-27', type: 'deposito', amount: 1800, fees: 0, note: 'Stipendio' },
+              { externalId: 'mb:2', date: '2026-09-02', type: 'prelievo', amount: 64.3, fees: 0, note: 'Supermercato' },
+            ]
+          : [],
+      cash: 2500.5,
+      warnings: ['Il consenso della banca scade tra 10 giorni: rinnovalo per continuare a sincronizzare.'],
+    };
+  },
+};
