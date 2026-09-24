@@ -3,11 +3,12 @@ import { fineco } from './fineco';
 import { finecoConto } from './finecoConto';
 import { generic } from './generic';
 import { okx } from './okx';
+import { tradeRepublic } from './traderepublic';
 
-export type { FileImporter, Sheet, ImportOptions } from './types';
+export type { FileImporter, Sheet, ImportOptions, ImporterOption } from './types';
 
 /** In ordine di priorità: i formati specifici prima, il generico per ultimo. */
-export const importers: FileImporter[] = [finecoConto, fineco, okx, generic];
+export const importers: FileImporter[] = [finecoConto, fineco, okx, tradeRepublic, generic];
 
 export function detectImporter(sheets: Sheet[]): FileImporter | undefined {
   return importers.find((i) => i.detect(sheets));

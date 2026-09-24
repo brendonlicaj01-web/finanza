@@ -51,7 +51,8 @@ export function mergeSync(
   const factor = new Map<string, number>();
   let newAssets = 0;
   for (const sa of result.assets) {
-    const symbol = sa.symbol.toUpperCase();
+    // Il confronto ignora maiuscole/minuscole, ma il nome si conserva com'è ("FTSE All-World", non "FTSE ALL-WORLD").
+    const symbol = sa.symbol.trim().toUpperCase();
     let i = sa.isin ? assets.findIndex((a) => a.isin === sa.isin) : -1;
     if (i === -1) {
       i = assets.findIndex(
@@ -61,7 +62,7 @@ export function mergeSync(
     if (i === -1) {
       assets.push({
         id: uid(),
-        symbol,
+        symbol: sa.symbol.trim(),
         name: sa.name,
         type: sa.type,
         price: sa.price ?? 0,

@@ -145,7 +145,7 @@ export function Dashboard({ go }: { go: (p: Page) => void }) {
                 <tr key={p.asset.id}>
                   <td>
                     <div className="cell-title">{p.asset.symbol}</div>
-                    <div className="cell-sub hide-mobile">{p.asset.name}</div>
+                    {p.asset.name !== p.asset.symbol && <div className="cell-sub hide-mobile">{p.asset.name}</div>}
                   </td>
                   <td className="num">{money(p.marketValue)}</td>
                   <td className="num hide-mobile">{pct(p.weight)}</td>

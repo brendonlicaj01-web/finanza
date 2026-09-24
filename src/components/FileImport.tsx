@@ -147,6 +147,9 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
   const [newName, setNewName] = useState(defaultName);
   const label = target === NEW_ACCOUNT ? newName.trim() || defaultName : importer.label;
   const [balanceCash, setBalanceCash] = useState(importer.needsCashBalance);
+  const [flags, setFlags] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries((importer.options ?? []).map((o) => [o.key, o.default])),
+  );
 
   const preview = useMemo(() => {
     try {
@@ -159,6 +162,7 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
         balanceCash,
         existingIds,
         knownSymbols: data.assets.map((a) => a.symbol),
+        flags,
       });
       const merged = mergeSync(base, { id: connectionId, label }, result, today());
       const added = merged.data.transactions.filter((t) => !base.transactions.some((b) => b.id === t.id));
@@ -166,7 +170,7 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
     } catch (e) {
       return { error: (e as Error).message };
     }
-  }, [data, connectionId, target, balanceCash, importer, sheets, label]);
+  }, [data, connectionId, target, balanceCash, importer, sheets, label, flags]);
 
   const confirm = () => {
     if (!preview.result || !label) return;
@@ -209,6 +213,24 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
             <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} />
           </Field>
         )}
+        {(importer.options ?? []).map((o) => (
+          <label className="check" key={o.key}>
+            <input
+              type="checkbox"
+              checked={flags[o.key] ?? o.default}
+              onChange={(e) => setFlags({ ...flags, [o.key]: e.target.checked })}
+            />
+            <span>
+              {o.label}
+              {o.hint && (
+                <>
+                  <br />
+                  <span className="small muted">{o.hint}</span>
+                </>
+              )}
+            </span>
+          </label>
+        ))}
         {importer.needsCashBalance && (
           <label className="check">
             <input type="checkbox" checked={balanceCash} onChange={(e) => setBalanceCash(e.target.checked)} />

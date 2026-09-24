@@ -13,6 +13,15 @@ export interface ImportOptions {
   existingIds: Set<string>;
   /** Simboli degli strumenti già presenti nell'app, per riconoscere nomi spezzati nelle descrizioni. */
   knownSymbols: string[];
+  /** Scelte specifiche del formato (vedi FileImporter.options). */
+  flags?: Record<string, boolean>;
+}
+
+export interface ImporterOption {
+  key: string;
+  label: string;
+  hint?: string;
+  default: boolean;
 }
 
 export interface FileImporter {
@@ -25,6 +34,8 @@ export interface FileImporter {
   needsCashBalance: boolean;
   /** Il broker esporta più file da importare insieme (es. OKX: Trading + Funding). */
   multiFile?: boolean;
+  /** Scelte mostrate nell'anteprima di import. */
+  options?: ImporterOption[];
   detect(sheets: Sheet[]): boolean;
   parse(sheets: Sheet[], options: ImportOptions): SyncResult;
 }

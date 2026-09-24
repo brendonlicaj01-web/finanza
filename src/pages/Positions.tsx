@@ -80,7 +80,7 @@ export function Positions() {
                         <tr key={`${p.accountId}-${p.assetId}`}>
                           <td>
                             <div className="cell-title">{asset.symbol}</div>
-                            <div className="cell-sub">{asset.name}</div>
+                            {asset.name !== asset.symbol && <div className="cell-sub">{asset.name}</div>}
                           </td>
                           <td>{accounts.get(p.accountId)?.name}</td>
                           <td className="num">{qty(p.quantity)}</td>
@@ -105,8 +105,9 @@ export function Positions() {
                             {p.asset.symbol} <span className="badge">{TYPE_LABELS.get(p.asset.type)}</span>
                           </div>
                           <div className="cell-sub">
-                            {p.asset.name}
-                            {p.accounts.length > 0 && ` · ${p.accounts.map((a) => a.name).join(', ')}`}
+                            {[p.asset.name !== p.asset.symbol ? p.asset.name : '', p.accounts.map((a) => a.name).join(', ')]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </div>
                         </td>
                         <td className="num">{qty(p.quantity)}</td>

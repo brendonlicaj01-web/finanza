@@ -83,6 +83,7 @@ solo le novità.
 | **Fineco** (consigliato) | Account → Movimenti del conto: filtro dall'apertura del conto a oggi → Esporta Excel. Contiene liquidità, imposte, compravendite, rimborsi e proventi. |
 | Fineco (alternativa) | Account → Report → Ordini e contabili → Titoli → Ricerca avanzata → Esporta in Excel ("Movimenti Dossier Titoli", con ISIN e commissioni ma senza liquidità). |
 | **OKX** | Cronologia del conto **Trading** e del conto **Funding** (due CSV): trascinali insieme. Le compravendite spot sono aggregate per ordine; i trasferimenti interni (Trading ↔ Funding, staking, Simple Earn) non vengono contati; le crypto depositate da wallet esterni entrano al valore in euro del giorno; i rendimenti (yield, staking, premi) sono proventi e la moneta ricevuta entra a quel valore; OKSOL è contato come SOL. |
+| **Trade Republic** | App o sito → Profilo → Transazioni → Esporta (CSV). Acquisti e piani di accumulo, dividendi, interessi, Saveback e bonus (proventi), imposte, commissioni, bonifici e trasferimenti di crypto. **Privacy**: i pagamenti con carta sono esclusi (o, a scelta nell'anteprima, ridotti a un totale mensile anonimo) e dei bonifici non vengono letti nomi, IBAN o causali. |
 | **Qualsiasi altro broker** (es. Directa) | Un CSV/Excel con almeno le colonne *Data*, *Tipo operazione* e *Importo* (o *Quantità* e *Prezzo*). Riconosciute anche *Descrizione*, *ISIN* (anche tra parentesi nella descrizione), *Commissioni*, *ID operazione* e *Saldo*: se c'è il saldo progressivo, la liquidità viene allineata. Tipi riconosciuti: acquisto/compra/buy, vendita/vendi/sell, dividendo/cedola, ritenuta, interessi, commissioni/imposte/bollo, bonifico/versamento/prelievo. |
 
 Obbligazioni e titoli di Stato usano quantità nominale e prezzo in percentuale (come nel portafoglio Fineco).
@@ -92,7 +93,7 @@ I CSV vengono letti come testo: le date italiane (gg/mm/aaaa) restano tali, i nu
 punto decimale e i file salvati da Excel con codifica Windows sono supportati. Nell'anteprima puoi scegliere il conto
 di destinazione o crearne uno nuovo (per il CSV generico il nome parte dal nome del file).
 
-In arrivo: lettori dedicati per Degiro, Trade Republic e Scalable Capital.
+In arrivo: lettori dedicati per Degiro e Scalable Capital.
 
 ## Avvio da terminale
 
