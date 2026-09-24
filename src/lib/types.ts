@@ -47,7 +47,15 @@ export interface Asset {
   /** Aliquota fiscale sulle plusvalenze, in percentuale (26 standard, 12.5 titoli di Stato). */
   taxRate: number;
   isin?: string;
+  /**
+   * Valore di 1 unità di prezzo per 1 unità di quantità. 1 per azioni/ETF/crypto;
+   * 0,01 per obbligazioni con quantità nominale e prezzo in percentuale (es. 3.000 × 100 % = 3.000 €).
+   */
+  priceMultiplier?: number;
 }
+
+/** Moltiplicatore effettivo di uno strumento (1 se non indicato). */
+export const multiplierOf = (a?: Pick<Asset, 'priceMultiplier'>) => a?.priceMultiplier || 1;
 
 export type TxType =
   | 'acquisto'

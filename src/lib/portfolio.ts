@@ -1,4 +1,5 @@
 import type { Account, AppData, Asset, AssetType, Transaction } from './types';
+import { multiplierOf } from './types';
 
 /** Tolleranza per confronti tra quantità frazionarie (crypto, ETF frazionati). */
 const EPS = 1e-9;
@@ -129,7 +130,7 @@ export function computePortfolio(data: AppData): PortfolioResult {
         if (!tx.assetId) break;
         const p = positionOf(tx.accountId, tx.assetId);
         const qty = tx.quantity ?? 0;
-        const gross = qty * (tx.price ?? 0);
+        const gross = qty * (tx.price ?? 0) * multiplierOf(assets.get(tx.assetId));
         p.quantity += qty;
         p.cost += gross + fees;
         p.fees += fees;
@@ -147,7 +148,7 @@ export function computePortfolio(data: AppData): PortfolioResult {
           );
           qty = p.quantity;
         }
-        const gross = qty * (tx.price ?? 0);
+        const gross = qty * (tx.price ?? 0) * multiplierOf(assets.get(tx.assetId));
         const avg = p.quantity > EPS ? p.cost / p.quantity : 0;
         const costOut = avg * qty;
         const gain = gross - fees - costOut;
@@ -213,8 +214,10 @@ export function computePortfolio(data: AppData): PortfolioResult {
   for (const p of positions.values()) {
     const asset = assets.get(p.assetId);
     const price = asset?.price ?? 0;
-    p.avgPrice = p.quantity > EPS ? p.cost / p.quantity : 0;
-    p.marketValue = p.quantity * price;
+    const mult = multiplierOf(asset);
+    // Prezzo medio nella stessa unità del prezzo di mercato (es. % per le obbligazioni).
+    p.avgPrice = p.quantity > EPS ? p.cost / p.quantity / mult : 0;
+    p.marketValue = p.quantity * price * mult;
     p.unrealized = p.quantity > EPS ? p.marketValue - p.cost : 0;
     p.unrealizedPct = p.cost > EPS ? p.unrealized / p.cost : 0;
     marketValue += p.marketValue;
@@ -326,7 +329,7 @@ export function aggregateByAsset(result: PortfolioResult, data: AppData): Aggreg
   return [...byAsset.values()]
     .map((a) => ({
       ...a,
-      avgPrice: a.quantity > EPS ? a.cost / a.quantity : 0,
+      avgPrice: a.quantity > EPS ? a.cost / a.quantity / multiplierOf(a.asset) : 0,
       unrealizedPct: a.cost > EPS ? a.unrealized / a.cost : 0,
       weight: total > EPS ? a.marketValue / total : 0,
     }))

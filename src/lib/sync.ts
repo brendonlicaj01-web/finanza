@@ -1,4 +1,5 @@
 import type { AppData, Asset, Transaction } from './types';
+import { multiplierOf } from './types';
 import type { SyncResult } from './sync-types';
 import { computePortfolio, quantityAt } from './portfolio';
 import { uid } from './id';
@@ -46,6 +47,8 @@ export function mergeSync(
   // ---- Strumenti ----
   const assets: Asset[] = data.assets.slice();
   const keyToId = new Map<string, string>();
+  /** Fattore per portare i prezzi della fonte nella convenzione dello strumento nell'app. */
+  const factor = new Map<string, number>();
   let newAssets = 0;
   for (const sa of result.assets) {
     const symbol = sa.symbol.toUpperCase();
@@ -62,21 +65,29 @@ export function mergeSync(
         name: sa.name,
         type: sa.type,
         price: sa.price ?? 0,
-        priceUpdatedAt: sa.price !== undefined ? today : undefined,
-        taxRate: 26,
+        priceUpdatedAt: sa.price !== undefined ? (sa.priceDate ?? today) : undefined,
+        taxRate: sa.taxRate ?? 26,
         isin: sa.isin,
+        priceMultiplier: sa.priceMultiplier,
       });
       i = assets.length - 1;
       newAssets++;
     } else {
       const a = assets[i];
+      const f = multiplierOf(sa) / multiplierOf(a);
       assets[i] = {
         ...a,
         isin: a.isin ?? sa.isin,
-        ...(sa.price !== undefined && sa.price > 0 ? { price: sa.price, priceUpdatedAt: today } : {}),
+        // Un prezzo "vecchio" (letto da un file) non sostituisce uno più recente.
+        ...(sa.price !== undefined &&
+        sa.price > 0 &&
+        (!sa.priceDate || !a.priceUpdatedAt || sa.priceDate > a.priceUpdatedAt)
+          ? { price: sa.price * f, priceUpdatedAt: sa.priceDate ?? today }
+          : {}),
       };
     }
     keyToId.set(sa.key, assets[i].id);
+    factor.set(sa.key, multiplierOf(sa) / multiplierOf(assets[i]));
   }
 
   // ---- Transazioni ----
@@ -97,7 +108,7 @@ export function mergeSync(
       accountId,
       assetId,
       quantity: st.quantity,
-      price: st.price,
+      price: st.price !== undefined && st.assetKey ? st.price * (factor.get(st.assetKey) ?? 1) : st.price,
       amount: st.amount,
       fees: st.fees,
       note: st.note,
@@ -118,7 +129,13 @@ export function mergeSync(
     const actual = new Map<string, { quantity: number; costPrice?: number }>();
     for (const h of result.holdings) {
       const id = keyToId.get(h.assetKey);
-      if (id) actual.set(id, { quantity: (actual.get(id)?.quantity ?? 0) + h.quantity, costPrice: h.costPrice });
+      const f = factor.get(h.assetKey) ?? 1;
+      if (id) {
+        actual.set(id, {
+          quantity: (actual.get(id)?.quantity ?? 0) + h.quantity,
+          costPrice: h.costPrice !== undefined ? h.costPrice * f : undefined,
+        });
+      }
     }
     // Quantità netta "grezza" (acquisti − vendite, senza troncare le vendite scoperte):
     // la differenza con il saldo reale è esattamente ciò che manca all'inizio o è cambiato fuori.

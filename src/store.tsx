@@ -18,6 +18,14 @@ export type Action =
   | { type: 'updateSettings'; settings: Partial<Settings> }
   | { type: 'replace'; data: AppData }
   | { type: 'applySync'; connection: { id: string; label: string }; result: SyncResult; today: string }
+  | {
+      type: 'applyImport';
+      connection: { id: string; label: string };
+      result: SyncResult;
+      today: string;
+      /** Conto esistente in cui importare (altrimenti ne viene creato uno nuovo). */
+      targetAccountId?: string;
+    }
   | { type: 'reset' };
 
 function upsert<T extends { id: string }>(list: T[], item: T): T[] {
@@ -67,9 +75,27 @@ function reducer(state: AppData, action: Action): AppData {
       return action.data;
     case 'applySync':
       return mergeSync(state, action.connection, action.result, action.today).data;
+    case 'applyImport':
+      return mergeSync(withTarget(state, action.connection.id, action.targetAccountId), action.connection, action.result, action.today)
+        .data;
     case 'reset':
       return emptyData();
   }
+}
+
+/** Collega un conto esistente alla fonte di import, così `mergeSync` lo usa come destinazione. */
+export function withTarget(state: AppData, connectionId: string, targetAccountId?: string): AppData {
+  if (!targetAccountId) return state;
+  return {
+    ...state,
+    accounts: state.accounts.map((a) =>
+      a.id === targetAccountId
+        ? { ...a, connectionId }
+        : a.connectionId === connectionId
+          ? { ...a, connectionId: undefined }
+          : a,
+    ),
+  };
 }
 
 /** Aggiorna (o aggiunge) la fotografia del patrimonio di oggi, usata per il grafico storico. */

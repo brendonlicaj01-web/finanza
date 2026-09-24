@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { quantityAt, sortTransactions } from '../lib/portfolio';
-import { ASSET_TX, TRADE_TX, TX_TYPES, type Transaction, type TxType } from '../lib/types';
+import { ASSET_TX, TRADE_TX, TX_TYPES, multiplierOf, type Transaction, type TxType } from '../lib/types';
 import { date as fmtDate, money, price, parseNumber, qty, today } from '../lib/format';
 import { uid } from '../lib/id';
 import { Card, Empty, Field, Icon, Modal, PageHead } from '../components/ui';
@@ -10,9 +10,9 @@ const TX_LABELS = new Map(TX_TYPES.map((t) => [t.value, t.label]));
 /** Effetto sulla liquidità: segno usato per colorare/mostrare l'importo. */
 const OUTFLOW: TxType[] = ['acquisto', 'prelievo', 'commissione'];
 
-function txTotal(tx: Transaction): number {
+function txTotal(tx: Transaction, multiplier = 1): number {
   if (TRADE_TX.includes(tx.type)) {
-    const gross = (tx.quantity ?? 0) * (tx.price ?? 0);
+    const gross = (tx.quantity ?? 0) * (tx.price ?? 0) * multiplier;
     return tx.type === 'acquisto' ? gross + tx.fees : gross - tx.fees;
   }
   if (tx.type === 'dividendo' || tx.type === 'interessi') return (tx.amount ?? 0) - tx.fees;
@@ -52,12 +52,19 @@ export function Transactions() {
         title="Transazioni"
         sub={`${data.transactions.length} movimenti registrati`}
         actions={
-          <button className="btn btn-primary" disabled={!canAdd} onClick={() => setEditing('new')}>
-            <Icon name="plus" /> Nuova transazione
-          </button>
+          <>
+            <a className="btn" href="#collegamenti">
+              <Icon name="upload" /> Importa da file
+            </a>
+            <button className="btn btn-primary" disabled={!canAdd} onClick={() => setEditing('new')}>
+              <Icon name="plus" /> Nuova transazione
+            </button>
+          </>
         }
       />
-      {!canAdd && <div className="alert">Crea prima un conto nella sezione Conti.</div>}
+      {!canAdd && (
+        <div className="alert">Crea prima un conto nella sezione Conti, oppure importa un file del tuo broker.</div>
+      )}
 
       {data.transactions.length > 0 && (
         <div className="row" role="group" aria-label="Filtri">
@@ -144,7 +151,7 @@ export function Transactions() {
               <tbody>
                 {list.map((t) => {
                   const asset = t.assetId ? assets.get(t.assetId) : undefined;
-                  const total = txTotal(t);
+                  const total = txTotal(t, multiplierOf(asset));
                   const out = OUTFLOW.includes(t.type);
                   return (
                     <tr key={t.id} className="clickable" onClick={() => setEditing(t)}>
@@ -229,7 +236,8 @@ function TransactionForm({
   const q = parseNumber(f.quantity);
   const p = parseNumber(f.price);
   const fees = parseNumber(f.fees || '0');
-  const gross = isTrade && q > 0 && p >= 0 ? q * p : NaN;
+  const mult = multiplierOf(data.assets.find((a) => a.id === f.assetId));
+  const gross = isTrade && q > 0 && p >= 0 ? q * p * mult : NaN;
   const held =
     f.type === 'vendita' && f.assetId
       ? quantityAt(data.transactions, f.accountId, f.assetId, f.date, initial?.id)

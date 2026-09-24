@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { isReady, redirectUrl, useSync } from '../sync';
 import type { BankInfo, ConnectionInfo, ProviderInfo } from '../lib/sync-types';
 import { Card, Empty, Field, Icon, Modal, PageHead } from '../components/ui';
+import { FileImport } from '../components/FileImport';
 
 const CATEGORIES: { id: ProviderInfo['category']; label: string }[] = [
   { id: 'broker', label: 'Broker' },
@@ -42,8 +43,9 @@ export function Connections() {
     return (
       <div className="stack">
         <PageHead title="Collegamenti" />
+        <FileImport />
         <Card>
-          <Empty title="Server locale non attivo">
+          <Empty title="Collegamenti automatici non disponibili">
             <p>
               I collegamenti automatici funzionano quando l'app è avviata sul tuo computer con il file
               <strong> Avvia Finanza</strong> (o <code>npm start</code>): è lì che vengono custodite le chiavi API.
@@ -63,7 +65,7 @@ export function Connections() {
     <div className="stack">
       <PageHead
         title="Collegamenti"
-        sub="Importa automaticamente operazioni, saldi e prezzi da broker ed exchange."
+        sub="Importa operazioni, saldi e prezzi da broker, exchange e banche: in automatico o da file."
         actions={
           connections.length > 0 && (
             <button className="btn btn-primary" disabled={busy} onClick={() => void syncAll()}>
@@ -72,6 +74,8 @@ export function Connections() {
           )
         }
       />
+
+      <FileImport />
 
       {connections.length > 0 && (
         <Card title="I tuoi collegamenti">

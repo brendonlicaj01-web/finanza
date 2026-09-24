@@ -140,9 +140,12 @@ function AssetForm({
     type: initial?.type ?? ('etf' as AssetType),
     price: initial ? String(initial.price).replace('.', ',') : '',
     taxRate: String(initial?.taxRate ?? 26).replace('.', ','),
+    isin: initial?.isin ?? '',
+    percent: initial?.priceMultiplier === 0.01,
   });
   const [error, setError] = useState('');
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const set = (k: Exclude<keyof typeof f, 'percent'>) => (e: { target: { value: string } }) =>
+    setF({ ...f, [k]: e.target.value });
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,9 +154,14 @@ function AssetForm({
     if (!f.symbol.trim()) return setError('Inserisci un simbolo, ticker o ISIN.');
     if (!(price >= 0)) return setError('Prezzo non valido.');
     if (!(taxRate >= 0 && taxRate <= 100)) return setError("L'aliquota deve essere tra 0 e 100.");
+    const isin = f.isin.trim().toUpperCase();
+    if (isin && !/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)) return setError('ISIN non valido (12 caratteri, es. IE00BK5BQT80).');
     const priceChanged = !initial || initial.price !== price;
     onSave({
+      ...initial,
       id: initial?.id ?? uid(),
+      isin: isin || undefined,
+      priceMultiplier: f.percent ? 0.01 : undefined,
       symbol: f.symbol.trim().toUpperCase(),
       name: f.name.trim() || f.symbol.trim().toUpperCase(),
       type: f.type,
@@ -195,6 +203,19 @@ function AssetForm({
           <Field label="Aliquota plusvalenze (%)" hint="26% standard, 12,5% titoli di Stato e equiparati.">
             <input className="input" inputMode="decimal" value={f.taxRate} onChange={set('taxRate')} />
           </Field>
+          <Field label="ISIN (facoltativo)">
+            <input className="input mono" value={f.isin} onChange={set('isin')} placeholder="es. IT0005713539" />
+          </Field>
+          <label className="check full">
+            <input type="checkbox" checked={f.percent} onChange={(e) => setF({ ...f, percent: e.target.checked })} />
+            <span>
+              Prezzo in percentuale del nominale
+              <br />
+              <span className="small muted">
+                Per obbligazioni e titoli di Stato: quantità = valore nominale (es. 3.000), prezzo = % (es. 100,03).
+              </span>
+            </span>
+          </label>
         </div>
         {error && (
           <p className="error" role="alert">

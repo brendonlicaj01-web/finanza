@@ -71,7 +71,22 @@ broker ed exchange.
 Per provare il flusso senza account reali: `FINANZA_MOCK=1 npm run dev` aggiunge un "Broker di prova" e una
 "Banca di prova" con autorizzazione simulata.
 
-In arrivo: import dei file di Fineco, Directa, Degiro, Trade Republic e Scalable Capital.
+## Import da file
+
+In **Collegamenti → Importa da file** (o dal pulsante in Transazioni) trascina l'export del tuo broker: il file
+viene letto solo nel browser, l'app riconosce il formato e mostra un'anteprima (nuove transazioni, già presenti,
+nuovi strumenti) prima di importare. Reimportare lo stesso file, o un export più recente che lo include, aggiunge
+solo le novità.
+
+| Broker | File da esportare |
+|---|---|
+| **Fineco** (consigliato) | Account → Movimenti del conto: filtro dall'apertura del conto a oggi → Esporta Excel. Contiene liquidità, imposte, compravendite, rimborsi e proventi. |
+| Fineco (alternativa) | Account → Report → Ordini e contabili → Titoli → Ricerca avanzata → Esporta in Excel ("Movimenti Dossier Titoli", con ISIN e commissioni ma senza liquidità). |
+
+Obbligazioni e titoli di Stato usano quantità nominale e prezzo in percentuale (come nel portafoglio Fineco).
+I file non contengono i prezzi correnti: aggiornali nella pagina Strumenti.
+
+In arrivo: Directa, Degiro, Trade Republic e Scalable Capital.
 
 ## Avvio da terminale
 
@@ -96,6 +111,7 @@ src/
   lib/types.ts       modello dati
   lib/storage.ts     salvataggio locale e validazione dei backup
   lib/csv.ts         esportazione CSV
+  lib/importers/     lettura dei file dei broker (SheetJS) e formati riconosciuti
   lib/sync.ts        unione dei dati sincronizzati (conti, strumenti, transazioni, allineamento saldi)
   store.tsx          stato dell'app (React context + reducer), fotografia giornaliera del patrimonio
   sync.tsx           collegamenti e sincronizzazione automatica lato browser

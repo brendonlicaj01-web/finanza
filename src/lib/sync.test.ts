@@ -89,3 +89,42 @@ describe('mergeSync', () => {
     expect(computePortfolio(data).positions[0].quantity).toBe(0);
   });
 });
+
+describe('mergeSync con obbligazioni in percentuale', () => {
+  it('valorizza quantità nominale × prezzo % e converte tra convenzioni diverse', () => {
+    const bond: SyncResult = {
+      accountName: 'Fineco',
+      accountKind: 'broker',
+      currency: 'EUR',
+      assets: [
+        { key: 'IT0005713539', symbol: 'BTP-23GN31', name: 'BTP', type: 'obbligazione', isin: 'IT0005713539', priceMultiplier: 0.01, taxRate: 12.5 },
+      ],
+      transactions: [
+        { externalId: 'f:1', date: '2026-06-16', type: 'acquisto', assetKey: 'IT0005713539', quantity: 3000, price: 100, fees: 0 },
+      ],
+      warnings: [],
+    };
+    let { data } = mergeSync(emptyData(), { id: 'file:fineco', label: 'Fineco' }, bond, '2026-09-24');
+    expect(data.assets[0]).toMatchObject({ priceMultiplier: 0.01, taxRate: 12.5 });
+    data = { ...data, assets: data.assets.map((a) => ({ ...a, price: 100.03 })) };
+    let r = computePortfolio(data);
+    expect(r.positions[0].cost).toBeCloseTo(3000);
+    expect(r.positions[0].avgPrice).toBeCloseTo(100);
+    expect(r.positions[0].marketValue).toBeCloseTo(3000.9);
+
+    // Un'altra fonte riporta lo stesso titolo con prezzo per unità (1,0005): viene convertito in %.
+    const perUnit: SyncResult = {
+      ...bond,
+      assets: [{ key: 'IT0005713539', symbol: 'BTP-23GN31', name: 'BTP', type: 'obbligazione', isin: 'IT0005713539', price: 1.0005 }],
+      transactions: [
+        { externalId: 'x:1', date: '2026-07-01', type: 'acquisto', assetKey: 'IT0005713539', quantity: 1000, price: 0.99, fees: 0 },
+      ],
+    };
+    data = mergeSync(data, { id: 'ibkr', label: 'IBKR' }, perUnit, '2026-09-24').data;
+    expect(data.assets).toHaveLength(1);
+    expect(data.assets[0].price).toBeCloseTo(100.05);
+    expect(data.transactions.find((t) => t.externalId === 'x:1')!.price).toBeCloseTo(99);
+    r = computePortfolio(data);
+    expect(r.summary.marketValue).toBeCloseTo(4000 * 1.0005);
+  });
+});

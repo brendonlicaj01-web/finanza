@@ -1,5 +1,5 @@
 import type { AppData } from './types';
-import { TX_TYPES } from './types';
+import { TX_TYPES, multiplierOf } from './types';
 import { sortTransactions } from './portfolio';
 
 function cell(v: string | number | undefined): string {
@@ -17,7 +17,9 @@ export function transactionsToCsv(data: AppData): string {
   const rows = sortTransactions(data.transactions).map((tx) => {
     const asset = tx.assetId ? assets.get(tx.assetId) : undefined;
     const amount =
-      tx.type === 'acquisto' || tx.type === 'vendita' ? (tx.quantity ?? 0) * (tx.price ?? 0) : tx.amount;
+      tx.type === 'acquisto' || tx.type === 'vendita'
+        ? (tx.quantity ?? 0) * (tx.price ?? 0) * multiplierOf(asset)
+        : tx.amount;
     return [
       tx.date,
       labels.get(tx.type) ?? tx.type,

@@ -10,6 +10,12 @@ export interface SyncAsset {
   isin?: string;
   /** Prezzo corrente in valuta base. */
   price?: number;
+  /** Data del prezzo, se non è quello di oggi (es. ultimo scambio letto da un file). */
+  priceDate?: string;
+  /** Convenzione di prezzo della fonte (0,01 = prezzo in % del nominale). */
+  priceMultiplier?: number;
+  /** Aliquota fiscale suggerita, se la fonte permette di dedurla (es. titoli di Stato 12,5%). */
+  taxRate?: number;
 }
 
 export interface SyncTx {

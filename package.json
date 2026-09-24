@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@e965/xlsx": "^0.20.3",
     "ccxt": "^4.5.84",
     "fast-xml-parser": "^5.11.1",
     "react": "^19.3.0",
