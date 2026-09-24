@@ -1,6 +1,6 @@
 import type { Provider } from './types.ts';
 import { ibkr } from './ibkr.ts';
-import { binance, coinbase, kraken, okx } from './crypto.ts';
+import { binance, coinbase, kraken } from './crypto.ts';
 import { bitpanda } from './bitpanda.ts';
 import { mock } from './mock.ts';
 
@@ -24,7 +24,6 @@ export const providers: Provider[] = [
   binance,
   kraken,
   coinbase,
-  okx,
   bitpanda,
   soon('enablebanking', 'Conti bancari (Enable Banking)', 'banca', 'Saldi e movimenti dei conti correnti via open banking PSD2. In arrivo.'),
 ];

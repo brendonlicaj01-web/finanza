@@ -30,7 +30,7 @@ interface Exchange {
   markets: Record<string, { spot?: boolean; active?: boolean; base: string; quote: string }>;
   currencies: Record<string, { name?: string }>;
   loadMarkets(): Promise<unknown>;
-  fetchBalance(params?: object): Promise<{ total: Record<string, number | undefined> }>;
+  fetchBalance(): Promise<{ total: Record<string, number | undefined> }>;
   fetchMyTrades(symbol?: string, since?: number, limit?: number, params?: object): Promise<Trade[]>;
   fetchTicker(symbol: string): Promise<{ last?: number; close?: number }>;
   fetchOHLCV(symbol: string, tf: string, since?: number, limit?: number): Promise<number[][]>;
@@ -169,8 +169,6 @@ async function createExchange(id: string, credentials: Record<string, string>): 
     apiKey: credentials.apiKey,
     // Le chiavi Coinbase CDP arrivano spesso con "\n" letterali: li trasformiamo in a capo reali.
     secret: credentials.secret?.replace(/\\n/g, '\n'),
-    // OKX richiede anche la passphrase scelta alla creazione della chiave.
-    password: credentials.password,
     enableRateLimit: true,
     timeout: 30_000,
   });
@@ -219,41 +217,19 @@ async function fetchAllTrades(
     }
     return out;
   }
-  if (id === 'okx') {
-    // OKX espone via API le operazioni spot degli ultimi 3 mesi.
-    return ex.fetchMyTrades(undefined, since, undefined, { paginate: true, instType: 'SPOT' });
-  }
   return ex.fetchMyTrades(undefined, since, undefined, { paginate: true });
 }
 
-interface CcxtOptions extends Pick<Provider, 'guide' | 'docsUrl' | 'fields'> {
-  /** Classe ccxt da usare, se dipende dalle credenziali (es. OKX Europa vs globale). */
-  ccxtClass?: (credentials: Record<string, string>) => string;
-  /** Conti interni da sommare (es. OKX: trading + funding). `undefined` = conto predefinito. */
-  balanceTypes?: (string | undefined)[];
-}
-
-async function fetchTotals(ex: Exchange, types: (string | undefined)[]) {
-  const totals: [string, number | undefined][] = [];
-  for (const type of types) {
-    const b = await ex.fetchBalance(type ? { type } : undefined);
-    totals.push(...Object.entries(b.total));
-  }
-  return totals;
-}
-
-function ccxtProvider(id: string, label: string, extra: CcxtOptions): Provider {
-  const { ccxtClass, balanceTypes = [undefined], ...info } = extra;
-  const open = (credentials: Record<string, string>) => createExchange(ccxtClass?.(credentials) ?? id, credentials);
+function ccxtProvider(id: string, label: string, extra: Pick<Provider, 'guide' | 'docsUrl' | 'fields'>): Provider {
   return {
     id,
     label,
     category: 'crypto',
     description: 'Saldi, operazioni, depositi e prelievi con una chiave API di sola lettura.',
     available: true,
-    ...info,
+    ...extra,
     async test(credentials) {
-      const ex = await open(credentials);
+      const ex = await createExchange(id, credentials);
       try {
         await ex.fetchBalance();
       } catch (e) {
@@ -261,7 +237,7 @@ function ccxtProvider(id: string, label: string, extra: CcxtOptions): Provider {
       }
     },
     async sync(credentials, { currency, since }): Promise<SyncResult> {
-      const ex = await open(credentials);
+      const ex = await createExchange(id, credentials);
       const warnings: string[] = [];
       try {
         await ex.loadMarkets();
@@ -269,7 +245,7 @@ function ccxtProvider(id: string, label: string, extra: CcxtOptions): Provider {
         const sinceMs = since ? Date.parse(since) - 7 * DAY : undefined;
 
         const balances = new Map<string, number>();
-        for (const [code, v] of await fetchTotals(ex, balanceTypes)) {
+        for (const [code, v] of Object.entries((await ex.fetchBalance()).total)) {
           if (!v || v <= 1e-10) continue;
           const c = normalizeCode(code);
           balances.set(c, (balances.get(c) ?? 0) + v);
@@ -393,32 +369,6 @@ export const coinbase = ccxtProvider('coinbase', 'Coinbase', {
     'Vai su portal.cdp.coinbase.com → API Keys → Create API key (chiave "Secret API Key", algoritmo ECDSA).',
     'Permessi: solo "View" (lettura). Non abilitare "Trade" né "Transfer".',
     'Incolla qui il nome della chiave e la chiave privata completa, comprese le righe BEGIN/END.',
-  ],
-});
-
-export const okx = ccxtProvider('okx', 'OKX', {
-  docsUrl: 'https://www.okx.com/help/how-can-i-create-an-api-key',
-  ccxtClass: (c) => (c.region === 'global' ? 'okx' : 'myokx'),
-  balanceTypes: [undefined, 'funding'],
-  fields: [
-    {
-      key: 'region',
-      label: 'Piattaforma',
-      options: [
-        { value: 'eea', label: 'OKX Europa (utenti italiani/UE)' },
-        { value: 'global', label: 'OKX globale (okx.com)' },
-      ],
-    },
-    { key: 'apiKey', label: 'API key', secret: true },
-    { key: 'secret', label: 'Secret key', secret: true },
-    { key: 'password', label: 'Passphrase', secret: true },
-  ],
-  guide: [
-    'Su OKX (sito web): Profilo → API → Crea chiave API V5.',
-    'Permessi: solo "Lettura" (Read). Non selezionare "Trading" né "Prelievo".',
-    'Scegli una passphrase e annotala: serve qui insieme ad API key e Secret key.',
-    'Se il tuo account è su OKX Europa (utenti UE dal 2025), scegli quella piattaforma qui sotto.',
-    'OKX fornisce via API solo le operazioni degli ultimi 3 mesi: ciò che possedevi prima entra come "Saldo iniziale". Vengono sommati conto Trading e conto Funding; i prodotti Earn non sono inclusi.',
   ],
 });
 

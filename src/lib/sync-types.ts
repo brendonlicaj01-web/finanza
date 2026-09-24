@@ -52,8 +52,6 @@ export interface ProviderField {
   multiline?: boolean;
   placeholder?: string;
   optional?: boolean;
-  /** Se presente, il campo è una scelta tra queste opzioni (la prima è predefinita). */
-  options?: { value: string; label: string }[];
 }
 
 export interface ProviderInfo {

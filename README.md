@@ -16,7 +16,7 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.
 - **Report annuale**: plus/minusvalenze realizzate, proventi, costi, versamenti e prelievi per anno.
 - **Collegamenti**: sincronizzazione automatica di operazioni, dividendi, depositi, saldi e prezzi da
-  **Interactive Brokers** (Flex Web Service), **Binance**, **Kraken**, **Coinbase**, **OKX** e **Bitpanda**
+  **Interactive Brokers** (Flex Web Service), **Binance**, **Kraken**, **Coinbase** e **Bitpanda**
   (chiavi API di sola lettura). Parte da sola all'apertura dell'app.
 - **Impostazioni**: valuta di riferimento, tema chiaro/scuro, tracciamento della liquidità, backup/ripristino JSON,
   esportazione CSV delle transazioni (compatibile con Excel italiano), dati di esempio.
@@ -49,8 +49,7 @@ broker ed exchange.
   saldi reali diventano un "Allineamento al saldo".
 - **Crypto**: gli scambi crypto/crypto (es. ETH/USDT) diventano acquisto + vendita della contropartita, valorizzati
   in euro al cambio del giorno. Su Binance lo storico si legge coppia per coppia: vengono lette le monete possedute
-  più quelle indicate nel campo facoltativo. OKX (Europa o globale) fornisce via API solo gli ultimi 3 mesi di
-  operazioni e somma i conti Trading e Funding.
+  più quelle indicate nel campo facoltativo.
 
 Per provare il flusso senza account reali: `FINANZA_MOCK=1 npm run dev` aggiunge un "Broker di prova".
 
@@ -89,7 +88,7 @@ server/
   plugin.ts          monta l'API locale /api dentro il server di Vite
   api.ts             endpoint: fonti, collegamenti, sincronizzazione
   store.ts           archivio locale delle credenziali (~/.finanza)
-  providers/         Interactive Brokers, exchange crypto (ccxt: Binance, Kraken, Coinbase, OKX), Bitpanda
+  providers/         Interactive Brokers, exchange crypto (ccxt), Bitpanda
 ```
 
 ## Note
