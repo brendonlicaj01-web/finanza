@@ -151,7 +151,9 @@ export function Connections() {
 
 function AddConnection({ provider, onClose }: { provider: ProviderInfo; onClose: () => void }) {
   const { add, sync } = useSync();
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(provider.fields.filter((f) => f.options?.length).map((f) => [f.key, f.options![0].value])),
+  );
   const [label, setLabel] = useState(provider.label);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -193,7 +195,19 @@ function AddConnection({ provider, onClose }: { provider: ProviderInfo; onClose:
           </Field>
           {provider.fields.map((f) => (
             <Field key={f.key} label={f.label} className="full">
-              {f.multiline ? (
+              {f.options ? (
+                <select
+                  className="input"
+                  value={values[f.key] ?? f.options[0]?.value}
+                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                >
+                  {f.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : f.multiline ? (
                 <textarea
                   className="input mono"
                   rows={5}
