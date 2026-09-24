@@ -18,7 +18,19 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
 - **Impostazioni**: valuta di riferimento, tema chiaro/scuro, tracciamento della liquidità, backup/ripristino JSON,
   esportazione CSV delle transazioni (compatibile con Excel italiano), dati di esempio.
 
-## Avvio
+## Avvio rapido (doppio clic)
+
+1. Installa [Node.js](https://nodejs.org) (versione LTS), una volta sola.
+2. Fai doppio clic sul file di avvio:
+   - **Windows**: `Avvia Finanza.bat`
+   - **macOS**: `Avvia Finanza.command` (la prima volta: clic destro → Apri, per autorizzarlo)
+   - **Linux**: `./avvia.sh`
+3. Si apre il browser su http://localhost:3210. Lascia aperta la finestra del terminale mentre usi l'app.
+
+Lo script installa le dipendenze da solo al primo avvio (e dopo ogni aggiornamento) e, se l'app è già in
+esecuzione, apre semplicemente il browser.
+
+## Avvio da terminale
 
 Richiede Node.js 20.19 o successivo.
 
