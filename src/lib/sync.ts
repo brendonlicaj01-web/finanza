@@ -76,8 +76,13 @@ export function mergeSync(
     } else {
       const a = assets[i];
       const f = multiplierOf(sa) / multiplierOf(a);
+      // Uno strumento creato con l'ISIN come nome (o di tipo "Altro") riceve nome e tipo veri quando arrivano.
+      const placeholder = !!a.isin && (a.symbol === a.isin || a.name === a.isin);
+      const better = sa.symbol && sa.symbol !== sa.isin;
       assets[i] = {
         ...a,
+        ...(placeholder && better ? { symbol: sa.symbol.trim(), name: sa.name } : {}),
+        ...(a.type === 'altro' && sa.type !== 'altro' ? { type: sa.type } : {}),
         isin: a.isin ?? sa.isin,
         // Un prezzo "vecchio" (letto da un file) non sostituisce uno più recente.
         ...(sa.price !== undefined &&

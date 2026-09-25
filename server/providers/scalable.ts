@@ -1,12 +1,23 @@
 import { execFile } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { AssetType } from '../../src/lib/types.ts';
+import { classify } from '../../src/lib/importers/util.ts';
+import { DATA_DIR } from '../store.ts';
 import type { SyncAsset, SyncHolding, SyncResult, SyncTx } from '../../src/lib/sync-types.ts';
 import { ProviderError, type Provider } from './types.ts';
 
 type Obj = Record<string, unknown>;
 
 /** Solo comandi di lettura: l'app non può mai eseguire ordini o modifiche. */
-const READ_COMMANDS = new Set(['whoami', 'broker holdings', 'broker transactions', 'broker cash-breakdown']);
+const READ_COMMANDS = new Set([
+  'whoami',
+  'broker holdings',
+  'broker transactions',
+  'broker transaction details',
+  'broker cash-breakdown',
+  'broker search',
+]);
 
 const num = (v: unknown): number => {
   if (v === null || v === undefined || v === '') return NaN;
@@ -81,30 +92,64 @@ function sc(bin: string, command: string, args: string[] = []): Promise<Obj> {
   });
 }
 
-function assetType(t: string): AssetType {
+/** Tipo di strumento dal tipo Scalable, con ripiego sul nome (ETF, obbligazioni, certificati…). */
+export function assetType(t: string, name = '', isin = ''): AssetType {
   const u = t.toUpperCase();
-  if (/STOCK|EQ|SHARE/.test(u)) return 'azione';
-  if (/ETF|ETP|ETC|ETN/.test(u)) return 'etf';
-  if (/BOND/.test(u)) return 'obbligazione';
+  if (/CRYPTO|COIN/.test(u) || /^XF000/.test(isin)) return 'crypto';
+  if (/ETF|ETP|ETC|ETN|EXCHANGE_TRADED/.test(u)) return 'etf';
+  if (/BOND|FIXED_INCOME|ANLEIHE/.test(u)) return 'obbligazione';
   if (/FUND|ELTIF/.test(u)) return 'fondo';
-  if (/CRYPTO/.test(u)) return 'crypto';
-  return 'altro';
+  if (/STOCK|EQUITY|^EQ$|SHARE|AKTIE/.test(u)) return 'azione';
+  if (/WARRANT|KNOCK|CERTIFICATE|DERIVATIVE|TURBO/.test(u)) return 'altro';
+  return name ? classify(name, isin).type : 'altro';
 }
 
 const DONE = new Set(['FILLED', 'PARTIAL_FILLED', 'SETTLED', 'CONFIRMED']);
+const r2 = (n: number) => Math.round(n * 100) / 100;
+const pos = (n: number) => (Number.isFinite(n) && n > 0 ? n : 0);
 
-/** Converte le risposte JSON del CLI (holdings, transazioni, liquidità) nel formato comune. */
+/** Dettaglio di una transazione (`sc broker transaction details`), già estratto dal contenitore. */
+export type Details = Obj;
+
+/** Transazioni per cui servono i dettagli: operazioni sui titoli e proventi (lordo e ritenute). */
+export function needsDetails(t: Obj): boolean {
+  const kind = str(t.summary_type);
+  if (t.is_cancellation === true) return false;
+  const status = str(t.status).toUpperCase();
+  if (status && !DONE.has(status)) return false;
+  if (kind === 'BrokerSecurityTransactionSummary' || kind === 'BrokerNonTradeSecurityTransactionSummary' || kind === 'BrokerEltifTransactionSummary') return true;
+  return kind === 'BrokerCashTransactionSummary' && /DISTRIBUTION/.test(str(t.cash_transaction_type).toUpperCase());
+}
+
+/**
+ * Converte le risposte del CLI nel formato comune.
+ * - `details`: dettagli per id transazione (prezzo, quote eseguite, commissioni, imposte, nome del titolo);
+ * - `lookup`: nome e tipo per ISIN (dalla ricerca), per i titoli senza dettagli.
+ */
 export function scalableToSync(
   holdingsData: Obj,
   transactionItems: Obj[],
   cashData: Obj | undefined,
   currency: string,
+  details: Map<string, Details> = new Map(),
+  lookup: Map<string, { name: string; type: string }> = new Map(),
 ): SyncResult {
   const warnings: string[] = [];
   const assets = new Map<string, SyncAsset>();
+  /** Crea o completa lo strumento: un nome vero sostituisce l'ISIN usato come segnaposto. */
   const touch = (isin: string, name?: string, type?: string) => {
-    if (!assets.has(isin)) {
-      assets.set(isin, { key: isin, symbol: name || isin, name: name || isin, type: assetType(type ?? ''), isin, taxRate: 26 });
+    const known = lookup.get(isin);
+    const nm = name || known?.name || '';
+    const tp = type || known?.type || '';
+    const a = assets.get(isin);
+    if (!a) {
+      assets.set(isin, { key: isin, symbol: nm || isin, name: nm || isin, type: assetType(tp, nm, isin), isin, taxRate: 26 });
+    } else {
+      if (nm && a.name === isin) {
+        a.name = nm;
+        a.symbol = nm;
+      }
+      if (a.type === 'altro' && (tp || nm)) a.type = assetType(tp, nm, isin);
     }
     return isin;
   };
@@ -117,7 +162,6 @@ export function scalableToSync(
     if (!isin || !(qty > 0)) continue;
     touch(isin, str(h.name), str(h.security_type));
     const a = assets.get(isin)!;
-    // Prezzo: quotazione se in EUR, altrimenti valorizzazione / quantità.
     const quote = num(h.quote_mid_price);
     const valuation = num(h.valuation);
     if (str(h.quote_currency || currency) === currency && quote > 0) a.price = quote;
@@ -129,8 +173,10 @@ export function scalableToSync(
   // ---- Transazioni ----
   const transactions: SyncTx[] = [];
   const unknown = new Map<string, number>();
-  let cancellations = 0;
   const skippedStatus = new Map<string, number>();
+  let cancellations = 0;
+  let withoutDetails = 0;
+
   for (const t of transactionItems) {
     const status = str(t.status).toUpperCase();
     if (status && !DONE.has(status)) {
@@ -141,41 +187,67 @@ export function scalableToSync(
       cancellations++;
       continue;
     }
-    const id = `scalable:${str(t.id)}`;
-    const date = day(t.last_event_datetime);
+    const txId = str(t.id);
+    const id = `scalable:${txId}`;
+    const d = details.get(txId);
+    const date = day(t.last_event_datetime) || day(d?.last_event_datetime);
     if (!date) continue;
     const amount = Math.abs(num(t.amount)) || 0;
     const kind = str(t.summary_type);
+    const sec = (d?.security ?? {}) as Obj;
 
     if (kind === 'BrokerSecurityTransactionSummary' || kind === 'BrokerEltifTransactionSummary') {
-      const isin = str(t.isin);
-      const qty = Math.abs(num(kind === 'BrokerEltifTransactionSummary' ? t.eltif_quantity : t.quantity));
+      const isin = str(t.isin) || str(sec.isin);
+      const trade = (d?.security_trade ?? d?.eltif ?? {}) as Obj;
+      const shares = (trade.number_of_shares ?? {}) as Obj;
+      const qty =
+        pos(num(shares.filled)) ||
+        pos(num(trade.eltif_quantity)) ||
+        Math.abs(num(kind === 'BrokerEltifTransactionSummary' ? t.eltif_quantity : t.quantity));
       if (!isin || !qty) continue;
-      const sell = str(t.side).toUpperCase() === 'SELL';
+      if (!d) withoutDetails++;
+      const sell = str(t.side || trade.side).toUpperCase() === 'SELL';
+      const tta = (trade.trade_transaction_amounts ?? {}) as Obj;
+      // Prezzo: controvalore di mercato ÷ quote; altrimenti prezzo medio; altrimenti importo ÷ quote.
+      const market = pos(num(tta.market_valuation));
+      const price = market ? market / qty : pos(num(trade.average_price)) || pos(num(trade.execution_price)) || amount / qty;
+      // Commissioni: voci dettagliate se presenti, altrimenti commissione complessiva.
+      const detailed = [tta.transaction_fee, tta.venue_fee, tta.crypto_spread_fee].map((v) => Math.abs(num(v)) || 0);
+      const fees = detailed.some(Boolean)
+        ? detailed.reduce((a, b) => a + b, 0)
+        : (Math.abs(num(trade.fee)) || 0) + (Math.abs(num(trade.transactional_fee)) || 0);
+      const taxesObj = (trade.aggregated_transaction_taxes ?? {}) as Obj;
+      const taxes = Math.abs(num(taxesObj.total_tax)) || Math.abs(num(tta.tax_amount)) || Math.abs(num(trade.taxes)) || 0;
       const plan = /SAVINGS_PLAN/i.test(str(t.security_transaction_type));
       transactions.push({
         externalId: id,
         date,
         type: sell ? 'vendita' : 'acquisto',
-        assetKey: touch(isin),
+        assetKey: touch(isin, str(sec.name), str(sec.security_type)),
         quantity: qty,
-        price: amount / qty,
-        fees: 0,
+        price,
+        fees: r2(fees),
         note: plan ? 'Piano di accumulo' : undefined,
       });
+      if (taxes >= 0.01) {
+        transactions.push({ externalId: `${id}:tax`, date, type: 'commissione', amount: r2(taxes), fees: 0, note: `Imposte su ${sell ? 'vendita' : 'acquisto'}` });
+      }
       continue;
     }
 
     if (kind === 'BrokerNonTradeSecurityTransactionSummary') {
-      const isin = str(t.isin);
-      const qty = Math.abs(num(t.quantity));
+      const nt = (d?.non_trade_security ?? {}) as Obj;
+      const isin = str(t.isin) || str(nt.isin) || str(sec.isin);
+      const qty = Math.abs(num(t.quantity)) || Math.abs(num(nt.quantity));
       if (!isin || !qty) continue;
-      const inflow = /_IN$|RECEIPT|DELIVERY_IN/i.test(str(t.non_trade_security_transaction_type));
-      const key = touch(isin);
-      if (amount) {
-        transactions.push({ externalId: `${id}:cash`, date, type: inflow ? 'deposito' : 'prelievo', amount, fees: 0, note: inflow ? 'Titoli trasferiti in entrata' : 'Titoli trasferiti in uscita' });
+      const kindNt = str(t.non_trade_security_transaction_type || nt.non_trade_security_transaction_type);
+      const inflow = /_IN$|RECEIPT|DELIVERY_IN|BONUS|SPLIT_IN/i.test(kindNt);
+      const value = amount || Math.abs(num(nt.total_amount)) || qty * (Math.abs(num(nt.average_price)) || 0);
+      const key = touch(isin, str(sec.name), str(sec.security_type));
+      if (value) {
+        transactions.push({ externalId: `${id}:cash`, date, type: inflow ? 'deposito' : 'prelievo', amount: r2(value), fees: 0, note: inflow ? 'Titoli trasferiti in entrata' : 'Titoli trasferiti in uscita' });
       }
-      transactions.push({ externalId: id, date, type: inflow ? 'acquisto' : 'vendita', assetKey: key, quantity: qty, price: amount / qty, fees: 0, note: str(t.non_trade_security_transaction_type).toLowerCase().replace(/_/g, ' ') });
+      transactions.push({ externalId: id, date, type: inflow ? 'acquisto' : 'vendita', assetKey: key, quantity: qty, price: value / qty, fees: 0, note: kindNt.toLowerCase().replace(/_/g, ' ') });
       continue;
     }
 
@@ -194,9 +266,22 @@ export function scalableToSync(
           transactions.push({ externalId: id, date, type: 'prelievo', amount, fees: 0, note: 'Prelievo' });
           break;
         case 'DISTRIBUTION':
-        case 'REINVESTMENT_DISTRIBUTION':
-          transactions.push({ externalId: id, date, type: 'dividendo', assetKey: isin ? touch(isin) : undefined, amount, fees: 0, note: 'Dividendo / distribuzione' });
+        case 'REINVESTMENT_DISTRIBUTION': {
+          // Dal dettaglio: importo lordo e imposte trattenute.
+          const tax = ((d?.cash as Obj)?.tax_details ?? {}) as Obj;
+          const gross = Math.abs(num(tax.gross_amount));
+          const withheld = Math.abs(num(tax.tax_amount));
+          transactions.push({
+            externalId: id,
+            date,
+            type: 'dividendo',
+            assetKey: isin ? touch(isin) : undefined,
+            amount: gross > 0 ? r2(gross) : amount,
+            fees: gross > 0 && withheld ? r2(withheld) : 0,
+            note: 'Dividendo / distribuzione',
+          });
           break;
+        }
         case 'INTEREST':
           transactions.push({ externalId: id, date, type: 'interessi', amount, fees: 0, note: 'Interessi' });
           break;
@@ -219,7 +304,10 @@ export function scalableToSync(
 
   for (const [s, n] of skippedStatus) warnings.push(`${n} transazioni con stato ${s} (non eseguite o annullate) ignorate.`);
   if (cancellations) warnings.push(`${cancellations} storni ignorati: le quantità sono comunque allineate alle posizioni reali.`);
+  if (withoutDetails) warnings.push(`${withoutDetails} operazioni senza dettaglio: prezzo ricavato dall'importo, commissioni non disponibili.`);
   for (const [t, n] of unknown) warnings.push(`${n} transazioni Scalable di tipo ${t} non riconosciute: ignorate.`);
+  const unnamed = [...assets.values()].filter((a) => a.name === a.isin).length;
+  if (unnamed) warnings.push(`${unnamed} strumenti senza nome da Scalable: mostrati con l'ISIN.`);
 
   const cash = num(cashData?.cash_balance);
   return {
@@ -229,16 +317,42 @@ export function scalableToSync(
     assets: [...assets.values()],
     transactions: transactions.sort((a, b) => a.date.localeCompare(b.date)),
     holdings,
-    cash: Number.isFinite(cash) ? Math.round(cash * 100) / 100 : undefined,
+    cash: Number.isFinite(cash) ? r2(cash) : undefined,
     warnings,
   };
+}
+
+/** Cache locale dei dettagli delle transazioni concluse (non cambiano più): evita di richiederli ogni volta. */
+const CACHE_FILE = join(DATA_DIR, 'cache', 'scalable-details.json');
+
+async function readCache(): Promise<Record<string, Details>> {
+  try {
+    return JSON.parse(await readFile(CACHE_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+async function writeCache(cache: Record<string, Details>) {
+  await mkdir(join(DATA_DIR, 'cache'), { recursive: true, mode: 0o700 });
+  await writeFile(CACHE_FILE, JSON.stringify(cache), { mode: 0o600 });
+}
+
+/** Esegue `fn` sugli elementi con al massimo `limit` esecuzioni in parallelo. */
+async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let i = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) await fn(items[i++]);
+    }),
+  );
 }
 
 export const scalable: Provider = {
   id: 'scalable',
   label: 'Scalable Capital',
   category: 'broker',
-  description: 'Posizioni, transazioni e liquidità tramite il CLI ufficiale di Scalable (Agentic Investing), in sola lettura.',
+  description: 'Posizioni, transazioni con commissioni e imposte, e liquidità tramite il CLI ufficiale di Scalable (Agentic Investing), in sola lettura.',
   available: true,
   docsUrl: 'https://github.com/ScalableCapital/scalable-cli',
   fields: [
@@ -249,7 +363,7 @@ export const scalable: Provider = {
     'Sul sito Scalable (versione web): Profilo → Sicurezza → Agentic Investing → attiva "Scalable CLI". Non serve attivare "Scalable MCP".',
     'Installa il CLI ufficiale dalla pagina "Releases" di github.com/ScalableCapital/scalable-cli (su Mac anche con Homebrew: brew install scalable-cli).',
     'Apri il Terminale ed esegui: sc login --local-read-only — completa tu l\'accesso nel browser. Così il CLI resta in sola lettura anche sul tuo computer.',
-    'Torna qui e premi "Collega e sincronizza". L\'app esegue solo comandi di lettura (posizioni, transazioni, liquidità): non può inviare ordini.',
+    'Torna qui e premi "Collega e sincronizza". La prima sincronizzazione legge il dettaglio di ogni operazione e può richiedere qualche minuto; le successive sono rapide.',
   ],
   async test({ bin }) {
     await sc(bin, 'whoami');
@@ -260,6 +374,7 @@ export const scalable: Provider = {
       sc(bin, 'broker holdings', ctx),
       sc(bin, 'broker cash-breakdown', ctx).catch(() => undefined),
     ]);
+
     const items: Obj[] = [];
     let cursor: string | undefined;
     const from = since ? ['--from-time', new Date(Date.parse(since) - 7 * 86_400_000).toISOString()] : [];
@@ -270,11 +385,63 @@ export const scalable: Provider = {
       cursor = str(r.cursor) || undefined;
       if (!cursor || !pageItems.length) break;
     }
-    const result = scalableToSync(holdings, items, cash, currency);
-    // Riepilogo diagnostico, visibile negli avvisi del collegamento.
+
+    // Dettagli (prezzo, commissioni, imposte, nome del titolo), dalla cache o dal CLI.
+    const cache = await readCache();
+    const details = new Map<string, Details>();
+    const missing: string[] = [];
+    for (const t of items) {
+      if (!needsDetails(t)) continue;
+      const id = str(t.id);
+      if (cache[id]) details.set(id, cache[id]);
+      else missing.push(id);
+    }
+    let failed = 0;
+    await pool(missing, 4, async (id) => {
+      try {
+        const d = await sc(bin, 'broker transaction details', [...ctx, '--transaction-id', id]);
+        details.set(id, d);
+        cache[id] = d;
+      } catch {
+        failed++;
+      }
+    });
+    if (missing.length) await writeCache(cache).catch(() => {});
+
+    // Nome e tipo per gli ISIN ancora senza nome (es. titoli venduti senza dettaglio).
+    const named = new Set<string>();
+    for (const h of ((holdings.items as Obj[]) ?? [])) if (str(h.name)) named.add(str(h.isin));
+    for (const d of details.values()) if (str((d.security as Obj)?.name)) named.add(str((d.security as Obj).isin));
+    const lookup = new Map<string, { name: string; type: string }>();
+    const relevant = items.filter((t) => DONE.has(str(t.status).toUpperCase()) && t.is_cancellation !== true);
+    const isins = [...new Set(relevant.map((t) => str(t.isin) || str(t.related_isin)).filter((i) => i && !named.has(i)))];
+    let lookedUp = false;
+    await pool(isins, 4, async (isin) => {
+      const cached = cache[`isin:${isin}`] as { name: string; type: string } | undefined;
+      if (cached?.name) {
+        lookup.set(isin, cached);
+        return;
+      }
+      try {
+        const r = await sc(bin, 'broker search', [isin, ...ctx]);
+        const hit = ((r.items as Obj[]) ?? []).find((x) => str(x.isin) === isin);
+        if (hit && str(hit.name)) {
+          const found = { name: str(hit.name), type: str(hit.security_type) };
+          lookup.set(isin, found);
+          cache[`isin:${isin}`] = found;
+          lookedUp = true;
+        }
+      } catch {
+        // resta l'ISIN come nome
+      }
+    });
+    if (lookedUp) await writeCache(cache).catch(() => {});
+
+    const result = scalableToSync(holdings, items, cash, currency, details, lookup);
     result.warnings.unshift(
-      `Dal CLI: ${items.length} transazioni${since ? ' recenti' : ''}, ${((holdings.items as Obj[]) ?? []).length} posizioni; importabili ${result.transactions.length} movimenti.`,
+      `Dal CLI: ${items.length} transazioni${since ? ' recenti' : ''}, ${((holdings.items as Obj[]) ?? []).length} posizioni, ${details.size} dettagli; importabili ${result.transactions.length} movimenti.`,
     );
+    if (failed) result.warnings.push(`${failed} dettagli non disponibili dal CLI: per quelle operazioni prezzo ricavato dall'importo.`);
     if (!cash) result.warnings.push('Liquidità non disponibile dal CLI: non allineata.');
     return result;
   },

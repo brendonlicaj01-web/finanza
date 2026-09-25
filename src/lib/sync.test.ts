@@ -128,3 +128,23 @@ describe('mergeSync con obbligazioni in percentuale', () => {
     expect(r.summary.marketValue).toBeCloseTo(4000 * 1.0005);
   });
 });
+
+describe('mergeSync con strumenti senza nome', () => {
+  it('sostituisce l\'ISIN usato come nome e il tipo "Altro" quando arrivano i dati veri', () => {
+    const base = emptyData();
+    base.assets = [{ id: 'a1', symbol: 'IE00BF11F565', name: 'IE00BF11F565', type: 'altro', price: 5, taxRate: 26, isin: 'IE00BF11F565' }];
+    const r: SyncResult = {
+      accountName: 'Scalable Capital',
+      accountKind: 'broker',
+      currency: 'EUR',
+      assets: [{ key: 'IE00BF11F565', symbol: 'iShares Core MSCI World', name: 'iShares Core MSCI World', type: 'etf', isin: 'IE00BF11F565' }],
+      transactions: [],
+      warnings: [],
+    };
+    const { data } = mergeSync(base, { id: 'c', label: 'Scalable Capital' }, r, '2026-09-25');
+    expect(data.assets[0]).toMatchObject({ id: 'a1', symbol: 'iShares Core MSCI World', type: 'etf' });
+    // Un nome scelto dall'utente non viene sovrascritto.
+    base.assets[0] = { ...base.assets[0], symbol: 'Il mio ETF', name: 'Il mio ETF', type: 'etf' };
+    expect(mergeSync(base, { id: 'c', label: 'x' }, r, '2026-09-25').data.assets[0].symbol).toBe('Il mio ETF');
+  });
+});

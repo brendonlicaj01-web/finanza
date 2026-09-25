@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseScOutput, scalableToSync } from './scalable.ts';
+import { assetType, needsDetails, parseScOutput, scalableToSync } from './scalable.ts';
 
 /** Risposte nel formato del CLI ufficiale (`sc broker holdings/transactions/cash-breakdown --json`). */
 const holdings = {
@@ -84,5 +84,58 @@ describe('parseScOutput', () => {
     expect(r.transactions).toHaveLength(6);
     expect(r.holdings).toHaveLength(1);
     expect(r.cash).toBe(1006.93);
+  });
+});
+
+describe('Scalable con dettagli delle transazioni', () => {
+  // Riepiloghi reali: niente nome del titolo, niente commissioni.
+  const items = [
+    { id: 'b1', summary_type: 'BrokerSecurityTransactionSummary', status: 'SETTLED', is_cancellation: false, last_event_datetime: '2026-02-10T10:00:00Z', isin: 'US8610121027', side: 'BUY', quantity: '4', amount: '400.99', security_transaction_type: 'SINGLE' },
+    { id: 's1', summary_type: 'BrokerSecurityTransactionSummary', status: 'SETTLED', is_cancellation: false, last_event_datetime: '2026-05-10T10:00:00Z', isin: 'US8610121027', side: 'SELL', quantity: '4', amount: '470.00', security_transaction_type: 'SINGLE' },
+    { id: 'd1', summary_type: 'BrokerCashTransactionSummary', status: 'SETTLED', is_cancellation: false, last_event_datetime: '2026-03-15T10:00:00Z', cash_transaction_type: 'DISTRIBUTION', related_isin: 'IE00BF11F565', amount: '7.36' },
+    { id: 'b2', summary_type: 'BrokerSecurityTransactionSummary', status: 'SETTLED', is_cancellation: false, last_event_datetime: '2026-01-10T10:00:00Z', isin: 'US67066G1040', side: 'BUY', quantity: '1', amount: '120' },
+  ];
+  // Dettagli (`sc broker transaction details`), già estratti dal contenitore "result".
+  const details = new Map<string, Record<string, unknown>>([
+    ['b1', { id: 'b1', detail_type: 'security_trade', security: { isin: 'US8610121027', name: 'Stonex Group', security_type: 'EQUITY' }, security_trade: { side: 'BUY', number_of_shares: { filled: '4', total: '4' }, average_price: { amount: '100.00', currency: 'EUR' }, trade_transaction_amounts: { market_valuation: '400.00', transaction_fee: '0.99', venue_fee: '0', crypto_spread_fee: null, tax_amount: '0' } } }],
+    ['s1', { id: 's1', detail_type: 'security_trade', security: { isin: 'US8610121027', name: 'Stonex Group', security_type: 'EQUITY' }, security_trade: { side: 'SELL', number_of_shares: { filled: '4', total: '4' }, trade_transaction_amounts: { market_valuation: '480.00', transaction_fee: '0.99' }, aggregated_transaction_taxes: { total_tax: '9.01' } } }],
+    ['d1', { id: 'd1', detail_type: 'cash', cash: { cash_transaction_type: 'DISTRIBUTION', amount: '7.36', tax_details: { gross_amount: '10.00', tax_amount: '2.64' } } }],
+  ]);
+  const lookup = new Map([['US67066G1040', { name: 'NVIDIA', type: 'STOCK' }], ['IE00BF11F565', { name: 'iShares Core MSCI World', type: 'ETF' }]]);
+  const r = scalableToSync({ items: [] }, items, { cash_balance: '0' }, 'EUR', details, lookup);
+  const byId = Object.fromEntries(r.transactions.map((t) => [t.externalId, t]));
+
+  it('usa nome e tipo veri (non l\'ISIN e "Altro")', () => {
+    const names = Object.fromEntries(r.assets.map((a) => [a.isin, [a.name, a.type]]));
+    expect(names).toEqual({
+      US8610121027: ['Stonex Group', 'azione'],
+      IE00BF11F565: ['iShares Core MSCI World', 'etf'],
+      US67066G1040: ['NVIDIA', 'azione'],
+    });
+  });
+
+  it('prende prezzo, commissioni e imposte dal dettaglio', () => {
+    expect(byId['scalable:b1']).toMatchObject({ type: 'acquisto', quantity: 4, price: 100, fees: 0.99 });
+    expect(byId['scalable:s1']).toMatchObject({ type: 'vendita', quantity: 4, price: 120, fees: 0.99 });
+    expect(byId['scalable:s1:tax']).toMatchObject({ type: 'commissione', amount: 9.01 });
+    expect(byId['scalable:d1']).toMatchObject({ type: 'dividendo', amount: 10, fees: 2.64, assetKey: 'IE00BF11F565' });
+    // Senza dettaglio: prezzo dall'importo, con avviso.
+    expect(byId['scalable:b2']).toMatchObject({ price: 120, fees: 0 });
+    expect(r.warnings.join(' ')).toMatch(/1 operazioni senza dettaglio/);
+  });
+
+  it('chiede i dettagli solo per operazioni concluse e proventi', () => {
+    expect(needsDetails(items[0])).toBe(true);
+    expect(needsDetails(items[2])).toBe(true);
+    expect(needsDetails({ ...items[0], status: 'CANCELLED' })).toBe(false);
+    expect(needsDetails({ id: 'x', summary_type: 'BrokerCashTransactionSummary', status: 'SETTLED', cash_transaction_type: 'DEPOSIT' })).toBe(false);
+  });
+
+  it('riconosce i tipi di strumento', () => {
+    expect(assetType('EQUITY')).toBe('azione');
+    expect(assetType('ETF')).toBe('etf');
+    expect(assetType('', 'Vanguard FTSE All-World UCITS ETF', 'IE00BK5BQT80')).toBe('etf');
+    expect(assetType('', 'Bitcoin', 'XF000BTC0017')).toBe('crypto');
+    expect(assetType('')).toBe('altro');
   });
 });

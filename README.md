@@ -64,7 +64,13 @@ broker ed exchange.
    (Releases, o `brew install scalable-cli` su Mac).
 3. Nel terminale: `sc login --local-read-only` e completa tu l'accesso.
 4. In Finanza → Collegamenti → Scalable Capital → Collega. L'app esegue solo comandi di lettura (`holdings`,
-   `transactions`, `cash-breakdown`) da un elenco fisso nel codice, senza shell: non può inviare ordini.
+   `transactions`, `transaction details`, `cash-breakdown`, `search`) da un elenco fisso nel codice, senza shell:
+   non può inviare ordini.
+
+Il riepilogo delle transazioni di Scalable non contiene nome del titolo, prezzo, commissioni e imposte: l'app legge il
+**dettaglio** di ogni operazione (prezzo di esecuzione, commissioni di transazione/sede/spread crypto, imposte, lordo e
+ritenuta dei dividendi) e lo conserva in `~/.finanza/cache`, così dalla seconda sincronizzazione legge solo le novità.
+Gli strumenti importati prima con l'ISIN come nome ricevono nome e tipo corretti.
 
 ### Conti bancari (Enable Banking)
 
