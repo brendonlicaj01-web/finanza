@@ -28,6 +28,11 @@ export interface SyncTx {
   amount?: number;
   fees: number;
   note?: string;
+  /**
+   * Versione dei dati: se è più alta di quella già salvata (es. ora ci sono prezzo e commissioni dal dettaglio),
+   * la transazione esistente con lo stesso `externalId` viene aggiornata, salvo modifiche fatte a mano.
+   */
+  rev?: number;
 }
 
 export interface SyncHolding {
@@ -48,6 +53,11 @@ export interface SyncResult {
   holdings?: SyncHolding[];
   /** Liquidità reale attuale in valuta base. */
   cash?: number;
+  /**
+   * Il risultato contiene tutto lo storico della fonte: gli allineamenti automatici creati in passato
+   * (quando lo storico era incompleto) vengono ricalcolati da zero.
+   */
+  complete?: boolean;
   warnings: string[];
 }
 

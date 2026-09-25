@@ -124,6 +124,13 @@ describe('Scalable con dettagli delle transazioni', () => {
     expect(r.warnings.join(' ')).toMatch(/1 operazioni senza dettaglio/);
   });
 
+  it('segna la versione dei dati e lo storico completo, per correggere gli import precedenti', () => {
+    expect(byId['scalable:b1'].rev).toBe(2);
+    expect(byId['scalable:s1:tax'].rev).toBe(2);
+    expect(byId['scalable:b2'].rev).toBe(1);
+    expect(r.complete).toBe(true);
+  });
+
   it('chiede i dettagli solo per operazioni concluse e proventi', () => {
     expect(needsDetails(items[0])).toBe(true);
     expect(needsDetails(items[2])).toBe(true);

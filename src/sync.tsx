@@ -42,6 +42,7 @@ const Ctx = createContext<SyncCtx | null>(null);
 function describe(stats: MergeStats): string {
   const parts: string[] = [];
   parts.push(stats.added === 1 ? '1 nuova transazione' : `${stats.added} nuove transazioni`);
+  if (stats.updated) parts.push(stats.updated === 1 ? '1 aggiornata' : `${stats.updated} aggiornate`);
   if (stats.newAssets) parts.push(stats.newAssets === 1 ? '1 nuovo strumento' : `${stats.newAssets} nuovi strumenti`);
   if (stats.adjustments) parts.push(stats.adjustments === 1 ? '1 allineamento' : `${stats.adjustments} allineamenti`);
   return parts.join(', ');

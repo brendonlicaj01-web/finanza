@@ -148,3 +148,78 @@ describe('mergeSync con strumenti senza nome', () => {
     expect(mergeSync(base, { id: 'c', label: 'x' }, r, '2026-09-25').data.assets[0].symbol).toBe('Il mio ETF');
   });
 });
+
+describe('mergeSync con dati più completi dalla fonte', () => {
+  const sc = { id: 'sc', label: 'Scalable Capital' };
+  const asset = { key: 'IE00BK5BQT80', symbol: 'VWCE', name: 'Vanguard All-World', type: 'etf' as const, isin: 'IE00BK5BQT80', price: 130 };
+  const holdings = [{ assetKey: 'IE00BK5BQT80', quantity: 20, costPrice: 90 }];
+  // Come nelle versioni precedenti: prezzo ricavato dall'importo, niente commissioni, nessuna versione.
+  const oldTx = [
+    { externalId: 'scalable:d1', date: '2025-01-15', type: 'deposito' as const, amount: 2004, fees: 0 },
+    { externalId: 'scalable:b1', date: '2025-02-01', type: 'acquisto' as const, assetKey: 'IE00BK5BQT80', quantity: 20, price: 100.1, fees: 0 },
+  ];
+  const newTx = [
+    { ...oldTx[0], rev: 1 },
+    { ...oldTx[1], price: 100, fees: 2, rev: 2 },
+    { externalId: 'scalable:b1:tax', date: '2025-02-01', type: 'commissione' as const, amount: 2, fees: 0, rev: 2 },
+  ];
+  const r = (transactions: SyncResult['transactions'], complete = false): SyncResult => ({
+    accountName: 'Scalable Capital',
+    accountKind: 'broker',
+    currency: 'EUR',
+    assets: [asset],
+    transactions,
+    holdings,
+    cash: 5,
+    complete,
+    warnings: [],
+  });
+
+  // Stato dell'utente: prima una sincronizzazione senza transazioni (saldo iniziale a oggi), poi le transazioni
+  // arrivate "a metà" (allineamenti che vendono il doppione), infine la versione con dettagli e storico completo.
+  const legacy = () => {
+    let data = mergeSync(emptyData(), sc, r([]), '2026-09-20').data;
+    data = mergeSync(data, sc, r(oldTx), '2026-09-24').data;
+    return data;
+  };
+
+  it('aggiorna le transazioni importate senza dettagli e ricalcola gli allineamenti', () => {
+    const before = legacy();
+    expect(before.transactions.some((t) => t.note?.startsWith('Allineamento al saldo'))).toBe(true);
+
+    const { data, stats } = mergeSync(before, sc, r(newTx, true), '2026-09-25');
+    expect(stats).toMatchObject({ added: 1, updated: 2 });
+    const buy = data.transactions.find((t) => t.externalId === 'scalable:b1')!;
+    expect(buy).toMatchObject({ price: 100, fees: 2, rev: 2 });
+    expect(buy.id).toBe(before.transactions.find((t) => t.externalId === 'scalable:b1')!.id);
+    // Nessun saldo iniziale o allineamento rimasto: le transazioni spiegano tutto.
+    // Resta solo la liquidità che le transazioni non spiegano, come saldo iniziale prima della prima operazione.
+    expect(data.transactions.filter((t) => t.externalId?.startsWith('sc:adj'))).toMatchObject([
+      { type: 'deposito', amount: 5, date: '2025-01-14', note: 'Saldo iniziale liquidità (Scalable Capital)' },
+    ]);
+    expect(data.transactions).toHaveLength(4);
+
+    const p = computePortfolio(data);
+    expect(p.positions[0]).toMatchObject({ quantity: 20 });
+    expect(p.positions[0].cost).toBeCloseTo(2002);
+    expect(p.cash[0].cash).toBeCloseTo(5);
+
+    // Una seconda sincronizzazione identica non cambia nulla (l'allineamento della liquidità resta quello).
+    const again = mergeSync(data, sc, r(newTx, true), '2026-09-26');
+    expect(again.stats).toMatchObject({ added: 0, updated: 0, adjustments: 0 });
+    expect(again.data.transactions).toEqual(data.transactions);
+  });
+
+  it('non tocca le transazioni modificate a mano', () => {
+    const before = legacy();
+    const edited = before.transactions.map((t) => (t.externalId === 'scalable:b1' ? { ...t, price: 99, edited: true } : t));
+    const { data } = mergeSync({ ...before, transactions: edited }, sc, r(newTx, true), '2026-09-25');
+    expect(data.transactions.find((t) => t.externalId === 'scalable:b1')).toMatchObject({ price: 99, fees: 0 });
+  });
+
+  it('senza versione più alta le transazioni esistenti restano come sono', () => {
+    const before = legacy();
+    const { stats } = mergeSync(before, sc, r(oldTx), '2026-09-25');
+    expect(stats.updated).toBe(0);
+  });
+});

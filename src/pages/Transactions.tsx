@@ -255,6 +255,8 @@ function TransactionForm({
       accountId: f.accountId,
       fees,
       note: f.note.trim() || undefined,
+      // Una transazione importata resta riconoscibile (niente doppioni), ma le sincronizzazioni non la sovrascrivono più.
+      ...(initial?.externalId ? { externalId: initial.externalId, rev: initial.rev, edited: true } : {}),
     };
     if (needsAsset) {
       if (!f.assetId) {

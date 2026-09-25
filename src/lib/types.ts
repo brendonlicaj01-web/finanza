@@ -97,6 +97,10 @@ export interface Transaction {
   note?: string;
   /** Identificativo univoco presso la fonte esterna: evita duplicati nelle sincronizzazioni. */
   externalId?: string;
+  /** Versione dei dati della fonte: una sincronizzazione con dati più completi aggiorna la transazione. */
+  rev?: number;
+  /** Modificata a mano: le sincronizzazioni non la toccano più. */
+  edited?: boolean;
 }
 
 export interface Snapshot {

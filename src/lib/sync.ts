@@ -6,6 +6,8 @@ import { uid } from './id';
 
 export interface MergeStats {
   added: number;
+  /** Transazioni già presenti aggiornate con dati più completi della fonte. */
+  updated: number;
   newAssets: number;
   adjustments: number;
   warnings: string[];
@@ -23,7 +25,8 @@ function dayBefore(iso: string): string {
  * Unisce i dati di una sincronizzazione nell'archivio dell'app:
  * - un conto per collegamento;
  * - strumenti riconosciuti per ISIN o simbolo, altrimenti creati;
- * - transazioni aggiunte una sola volta (chiave `externalId`), senza toccare quelle modificate a mano;
+ * - transazioni aggiunte una sola volta (chiave `externalId`); quelle già presenti si aggiornano se la fonte
+ *   fornisce dati più completi (`rev` più alto), salvo che siano state modificate a mano;
  * - quantità e liquidità allineate ai saldi reali. Alla prima sincronizzazione la differenza diventa
  *   un saldo iniziale datato il giorno prima della prima operazione importata (così le vendite
  *   successive trovano i titoli); dopo, un allineamento alla data odierna.
@@ -42,7 +45,13 @@ export function mergeSync(
     accounts = [...accounts, account];
   }
   const accountId = account.id;
-  const firstSync = !data.transactions.some((t) => t.accountId === accountId);
+  // Con lo storico completo, gli allineamenti automatici fatti in passato si ricalcolano da zero:
+  // erano serviti a compensare operazioni che allora mancavano.
+  const autoAdj = `${connection.id}:adj`;
+  const base = result.complete
+    ? data.transactions.filter((t) => !(t.accountId === accountId && !t.edited && t.externalId?.startsWith(autoAdj)))
+    : data.transactions;
+  const firstSync = !!result.complete || !base.some((t) => t.accountId === accountId);
 
   // ---- Strumenti ----
   const assets: Asset[] = data.assets.slice();
@@ -97,21 +106,28 @@ export function mergeSync(
   }
 
   // ---- Transazioni ----
-  const known = new Set(data.transactions.map((t) => t.externalId).filter(Boolean));
+  const existing = new Map<string, number>();
+  base.forEach((t, i) => t.externalId && existing.set(t.externalId, i));
+  const seen = new Set<string>();
   const incoming: Transaction[] = [];
+  const replaced = new Map<number, Transaction>();
   for (const st of result.transactions) {
-    if (known.has(st.externalId)) continue;
-    known.add(st.externalId);
+    if (seen.has(st.externalId)) continue;
+    seen.add(st.externalId);
+    const at = existing.get(st.externalId);
+    const old = at === undefined ? undefined : base[at];
+    // Già presente: si aggiorna solo con dati più completi e se non è stata modificata a mano.
+    if (old && (old.edited || (st.rev ?? 0) <= (old.rev ?? 0))) continue;
     const assetId = st.assetKey ? keyToId.get(st.assetKey) : undefined;
     if (st.assetKey && !assetId && st.type !== 'dividendo') {
       warnings.push(`Transazione ${st.externalId} ignorata: strumento ${st.assetKey} sconosciuto.`);
       continue;
     }
-    incoming.push({
-      id: uid(),
+    const tx: Transaction = {
+      id: old?.id ?? uid(),
       date: st.date,
       type: st.type,
-      accountId,
+      accountId: old?.accountId ?? accountId,
       assetId,
       quantity: st.quantity,
       price: st.price !== undefined && st.assetKey ? st.price * (factor.get(st.assetKey) ?? 1) : st.price,
@@ -119,9 +135,12 @@ export function mergeSync(
       fees: st.fees,
       note: st.note,
       externalId: st.externalId,
-    });
+      ...(st.rev ? { rev: st.rev } : {}),
+    };
+    if (old) replaced.set(at!, tx);
+    else incoming.push(tx);
   }
-  let transactions = [...data.transactions, ...incoming];
+  let transactions = [...(replaced.size ? base.map((t, i) => replaced.get(i) ?? t) : base), ...incoming];
 
   // ---- Allineamento ai saldi reali ----
   const accountTx = transactions.filter((t) => t.accountId === accountId);
@@ -192,9 +211,23 @@ export function mergeSync(
     }
   }
 
+  // Un allineamento ricalcolato identico a uno precedente resta quello di prima (non è una novità).
+  let changedAdj = adjustments.length;
+  if (result.complete) {
+    const previous = data.transactions.filter((t) => t.accountId === accountId && !t.edited && t.externalId?.startsWith(autoAdj));
+    const sig = (t: Transaction) => [t.date, t.type, t.assetId, t.quantity, t.price, t.amount].join('|');
+    for (let k = 0; k < adjustments.length; k++) {
+      const j = previous.findIndex((t) => sig(t) === sig(adjustments[k]));
+      if (j === -1) continue;
+      adjustments[k] = previous[j];
+      previous.splice(j, 1);
+      changedAdj--;
+    }
+  }
+
   transactions = [...transactions, ...adjustments];
   return {
     data: { ...data, accounts, assets, transactions },
-    stats: { added: incoming.length, newAssets, adjustments: adjustments.length, warnings },
+    stats: { added: incoming.length, updated: replaced.size, newAssets, adjustments: changedAdj, warnings },
   };
 }

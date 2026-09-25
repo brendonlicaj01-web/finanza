@@ -318,7 +318,7 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
           <button
             type="button"
             className="btn btn-primary"
-            disabled={!!preview.error || !preview.stats || preview.stats.added === 0}
+            disabled={!!preview.error || !preview.stats || preview.stats.added + preview.stats.updated === 0}
             onClick={confirm}
           >
             Importa

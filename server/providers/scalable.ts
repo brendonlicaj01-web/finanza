@@ -190,6 +190,8 @@ export function scalableToSync(
     const txId = str(t.id);
     const id = `scalable:${txId}`;
     const d = details.get(txId);
+    // Versione dei dati: con il dettaglio (prezzo, commissioni, imposte) sostituisce un import precedente senza.
+    const rev = d ? 2 : 1;
     const date = day(t.last_event_datetime) || day(d?.last_event_datetime);
     if (!date) continue;
     const amount = Math.abs(num(t.amount)) || 0;
@@ -228,9 +230,10 @@ export function scalableToSync(
         price,
         fees: r2(fees),
         note: plan ? 'Piano di accumulo' : undefined,
+        rev,
       });
       if (taxes >= 0.01) {
-        transactions.push({ externalId: `${id}:tax`, date, type: 'commissione', amount: r2(taxes), fees: 0, note: `Imposte su ${sell ? 'vendita' : 'acquisto'}` });
+        transactions.push({ externalId: `${id}:tax`, date, type: 'commissione', amount: r2(taxes), fees: 0, note: `Imposte su ${sell ? 'vendita' : 'acquisto'}`, rev });
       }
       continue;
     }
@@ -245,9 +248,9 @@ export function scalableToSync(
       const value = amount || Math.abs(num(nt.total_amount)) || qty * (Math.abs(num(nt.average_price)) || 0);
       const key = touch(isin, str(sec.name), str(sec.security_type));
       if (value) {
-        transactions.push({ externalId: `${id}:cash`, date, type: inflow ? 'deposito' : 'prelievo', amount: r2(value), fees: 0, note: inflow ? 'Titoli trasferiti in entrata' : 'Titoli trasferiti in uscita' });
+        transactions.push({ externalId: `${id}:cash`, date, type: inflow ? 'deposito' : 'prelievo', amount: r2(value), fees: 0, note: inflow ? 'Titoli trasferiti in entrata' : 'Titoli trasferiti in uscita', rev });
       }
-      transactions.push({ externalId: id, date, type: inflow ? 'acquisto' : 'vendita', assetKey: key, quantity: qty, price: value / qty, fees: 0, note: kindNt.toLowerCase().replace(/_/g, ' ') });
+      transactions.push({ externalId: id, date, type: inflow ? 'acquisto' : 'vendita', assetKey: key, quantity: qty, price: value / qty, fees: 0, note: kindNt.toLowerCase().replace(/_/g, ' '), rev });
       continue;
     }
 
@@ -279,6 +282,7 @@ export function scalableToSync(
             amount: gross > 0 ? r2(gross) : amount,
             fees: gross > 0 && withheld ? r2(withheld) : 0,
             note: 'Dividendo / distribuzione',
+            rev,
           });
           break;
         }
@@ -318,6 +322,7 @@ export function scalableToSync(
     transactions: transactions.sort((a, b) => a.date.localeCompare(b.date)),
     holdings,
     cash: Number.isFinite(cash) ? r2(cash) : undefined,
+    complete: true,
     warnings,
   };
 }
@@ -368,7 +373,9 @@ export const scalable: Provider = {
   async test({ bin }) {
     await sc(bin, 'whoami');
   },
-  async sync({ bin, portfolioId }, { currency, since }) {
+  // Legge sempre tutto lo storico (ignora `since`): le pagine sono leggere e i dettagli già letti sono in cache,
+  // così le operazioni importate in passato con dati incompleti vengono corrette a ogni sincronizzazione.
+  async sync({ bin, portfolioId }, { currency }) {
     const ctx = portfolioId ? ['--portfolio-id', portfolioId] : [];
     const [holdings, cash] = await Promise.all([
       sc(bin, 'broker holdings', ctx),
@@ -377,9 +384,8 @@ export const scalable: Provider = {
 
     const items: Obj[] = [];
     let cursor: string | undefined;
-    const from = since ? ['--from-time', new Date(Date.parse(since) - 7 * 86_400_000).toISOString()] : [];
     for (let page = 0; page < 500; page++) {
-      const r = await sc(bin, 'broker transactions', [...ctx, '--page-size', '100', ...from, ...(cursor ? ['--cursor', cursor] : [])]);
+      const r = await sc(bin, 'broker transactions', [...ctx, '--page-size', '100', ...(cursor ? ['--cursor', cursor] : [])]);
       const pageItems = (r.items as Obj[]) ?? [];
       items.push(...pageItems);
       cursor = str(r.cursor) || undefined;
@@ -439,7 +445,7 @@ export const scalable: Provider = {
 
     const result = scalableToSync(holdings, items, cash, currency, details, lookup);
     result.warnings.unshift(
-      `Dal CLI: ${items.length} transazioni${since ? ' recenti' : ''}, ${((holdings.items as Obj[]) ?? []).length} posizioni, ${details.size} dettagli; importabili ${result.transactions.length} movimenti.`,
+      `Dal CLI: ${items.length} transazioni, ${((holdings.items as Obj[]) ?? []).length} posizioni, ${details.size} dettagli; importabili ${result.transactions.length} movimenti.`,
     );
     if (failed) result.warnings.push(`${failed} dettagli non disponibili dal CLI: per quelle operazioni prezzo ricavato dall'importo.`);
     if (!cash) result.warnings.push('Liquidità non disponibile dal CLI: non allineata.');

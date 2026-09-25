@@ -69,7 +69,10 @@ broker ed exchange.
 
 Il riepilogo delle transazioni di Scalable non contiene nome del titolo, prezzo, commissioni e imposte: l'app legge il
 **dettaglio** di ogni operazione (prezzo di esecuzione, commissioni di transazione/sede/spread crypto, imposte, lordo e
-ritenuta dei dividendi) e lo conserva in `~/.finanza/cache`, così dalla seconda sincronizzazione legge solo le novità.
+ritenuta dei dividendi) e lo conserva in `~/.finanza/cache`, così dalla seconda sincronizzazione chiede al CLI solo i
+dettagli delle operazioni nuove. A ogni sincronizzazione rilegge comunque tutto lo storico (è veloce): le operazioni
+importate in passato senza dettaglio vengono **corrette** (prezzo, commissioni, imposte), senza doppioni, e i saldi
+iniziali/allineamenti automatici vengono ricalcolati. Le transazioni che hai modificato a mano non vengono toccate.
 Gli strumenti importati prima con l'ISIN come nome ricevono nome e tipo corretti.
 
 ### Conti bancari (Enable Banking)
