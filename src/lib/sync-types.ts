@@ -33,6 +33,11 @@ export interface SyncTx {
    * la transazione esistente con lo stesso `externalId` viene aggiornata, salvo modifiche fatte a mano.
    */
   rev?: number;
+  /**
+   * Scambio: vendita e acquisto con lo stesso `pair` valgono uguale (il costo di ciò che si riceve è il valore di
+   * ciò che si dà). Usato quando i prezzi vengono aggiunti dopo la lettura del file.
+   */
+  pair?: string;
 }
 
 export interface SyncHolding {

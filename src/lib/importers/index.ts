@@ -6,11 +6,12 @@ import { okx } from './okx';
 import { tradeRepublic } from './traderepublic';
 import { degiro } from './degiro';
 import { trezor } from './trezor';
+import { exodus } from './exodus';
 
 export type { FileImporter, Sheet, ImportOptions, ImporterOption } from './types';
 
 /** In ordine di priorità: i formati specifici prima, il generico per ultimo. */
-export const importers: FileImporter[] = [finecoConto, fineco, okx, tradeRepublic, degiro, trezor, generic];
+export const importers: FileImporter[] = [finecoConto, fineco, okx, tradeRepublic, degiro, trezor, exodus, generic];
 
 export function detectImporter(sheets: Sheet[]): FileImporter | undefined {
   return importers.find((i) => i.detect(sheets));

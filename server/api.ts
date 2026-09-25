@@ -4,6 +4,7 @@ import { ProviderError } from './providers/types.ts';
 import { randomBytes } from 'node:crypto';
 import { store, toInfo, type StoredConnection } from './store.ts';
 import type { Bank } from './providers/types.ts';
+import { PriceBook } from './providers/wallet/prices.ts';
 
 type Next = (err?: unknown) => void;
 
@@ -125,6 +126,26 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, next:
         200,
         providers.map(({ test: _t, sync: _s, auth: _a, ...rest }) => rest),
       );
+    }
+
+    // Prezzi giornalieri in euro delle crypto (fonti pubbliche, in cache), per valorizzare gli import da file
+    // che non contengono i controvalori (es. Exodus).
+    if (method === 'POST' && path === '/prices') {
+      const body = await readJson(req);
+      const symbols = (Array.isArray(body.symbols) ? body.symbols : [])
+        .map((x) => String(x).toUpperCase())
+        .filter((x) => /^[A-Z0-9.]{1,15}$/.test(x))
+        .slice(0, 200);
+      const from = Date.parse(`${String(body.from ?? '')}T00:00:00Z`);
+      const book = new PriceBook();
+      await book.prepare(symbols, Number.isFinite(from) ? from : Date.now() - 365 * 86_400_000);
+      await book.save().catch(() => {});
+      const out: Record<string, Record<string, number>> = {};
+      for (const sym of symbols) {
+        const series = book.series(sym);
+        if (series) out[sym] = series;
+      }
+      return send(res, 200, out);
     }
 
     if (method === 'GET' && path === '/connections') {

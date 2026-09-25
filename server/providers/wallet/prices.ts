@@ -142,6 +142,13 @@ export class PriceBook {
     return before ? book[before] : days.length ? book[days[0]] : undefined;
   }
 
+  /** Serie giornaliera in euro di un simbolo (per l'import da file nel browser). */
+  series(symbol: string): Record<string, number> | undefined {
+    const raw = priceSymbol(symbol);
+    if (EUR_STABLE.has(raw)) return { '1970-01-01': 1 };
+    return this.cache[raw];
+  }
+
   latest(symbol: string): number | undefined {
     return this.at(symbol, Date.now());
   }

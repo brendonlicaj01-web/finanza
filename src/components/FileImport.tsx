@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { NEW_ACCOUNT, useStore, withTarget } from '../store';
 import { detectImporter, importers, readSheets, type FileImporter, type Sheet } from '../lib/importers';
 import { nameFromFile } from '../lib/importers/util';
 import { mergeSync } from '../lib/sync';
+import { fillPrices, priceRequest, type PriceTable } from '../lib/pricefill';
+import { api } from '../lib/api';
+import { useSync } from '../sync';
 import { date as fmtDate, money, qty, today } from '../lib/format';
 import { TX_TYPES } from '../lib/types';
 import { Card, Field, Icon, Modal } from './ui';
@@ -155,26 +158,67 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
     Object.fromEntries((importer.options ?? []).map((o) => [o.key, o.default])),
   );
 
-  const preview = useMemo(() => {
+  // File senza controvalori (es. Exodus): i prezzi del giorno arrivano dal server locale.
+  const { serverUp } = useSync();
+  const [prices, setPrices] = useState<PriceTable | null | 'loading'>(importer.needsPrices ? 'loading' : null);
+  const parsed = useMemo(() => {
     try {
       const base = withTarget(data, connectionId, target);
       const account = base.accounts.find((a) => a.connectionId === connectionId);
       const existingIds = new Set(
         base.transactions.filter((t) => t.accountId === account?.id && t.externalId).map((t) => t.externalId!),
       );
-      const result = importer.parse(sheets, {
-        balanceCash,
-        existingIds,
-        knownSymbols: data.assets.map((a) => a.symbol),
-        flags,
-      });
+      return {
+        result: importer.parse(sheets, { balanceCash, existingIds, knownSymbols: data.assets.map((a) => a.symbol), flags }),
+      };
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  }, [data, connectionId, target, balanceCash, importer, sheets, flags]);
+  const request = useMemo(() => (importer.needsPrices && parsed.result ? priceRequest(parsed.result) : undefined), [importer, parsed]);
+  useEffect(() => {
+    if (!importer.needsPrices) return;
+    if (!request || serverUp === false) {
+      setPrices(null);
+      return;
+    }
+    if (serverUp === null) return;
+    let alive = true;
+    api<PriceTable>('/prices', { method: 'POST', body: request })
+      .then((t) => alive && setPrices(t))
+      .catch(() => alive && setPrices(null));
+    return () => {
+      alive = false;
+    };
+    // Una sola richiesta per file: i simboli non cambiano con il conto di destinazione.
+  }, [importer, serverUp, request?.symbols.join(','), request?.from]);
+
+  const preview = useMemo(() => {
+    try {
+      if (parsed.error) throw new Error(parsed.error);
+      const base = withTarget(data, connectionId, target);
+      let result = parsed.result!;
+      if (importer.needsPrices) {
+        result =
+          prices && prices !== 'loading'
+            ? fillPrices(result, prices)
+            : {
+                ...result,
+                warnings: [
+                  ...result.warnings,
+                  prices === 'loading'
+                    ? 'Recupero dei prezzi del giorno in corso…'
+                    : 'Prezzi del giorno non disponibili (serve l\'app avviata con "Avvia Finanza" e la connessione a Internet): i valori in euro restano a zero.',
+                ],
+              };
+      }
       const merged = mergeSync(base, { id: connectionId, label }, result, today());
       const added = merged.data.transactions.filter((t) => !base.transactions.some((b) => b.id === t.id));
       return { result, stats: merged.stats, added, assets: merged.data.assets, error: '' };
     } catch (e) {
       return { error: (e as Error).message };
     }
-  }, [data, connectionId, target, balanceCash, importer, sheets, label, flags]);
+  }, [data, connectionId, target, parsed, importer, prices, label]);
 
   const confirm = () => {
     if (!preview.result || !label) return;
@@ -322,7 +366,12 @@ function ImportPreview({ pending, onDone }: { pending: Pending; onDone: (message
           <button
             type="button"
             className="btn btn-primary"
-            disabled={!!preview.error || !preview.stats || preview.stats.added + preview.stats.updated + preview.stats.removed === 0}
+            disabled={
+              !!preview.error ||
+              !preview.stats ||
+              prices === 'loading' ||
+              preview.stats.added + preview.stats.updated + preview.stats.removed === 0
+            }
             onClick={confirm}
           >
             Importa

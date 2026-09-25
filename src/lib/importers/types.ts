@@ -36,6 +36,8 @@ export interface FileImporter {
   multiFile?: boolean;
   /** Scelte mostrate nell'anteprima di import. */
   options?: ImporterOption[];
+  /** Il file non contiene i controvalori: i prezzi del giorno vengono aggiunti dopo la lettura (fillPrices). */
+  needsPrices?: boolean;
   detect(sheets: Sheet[]): boolean;
   parse(sheets: Sheet[], options: ImportOptions): SyncResult;
 }
