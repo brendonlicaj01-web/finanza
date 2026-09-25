@@ -59,6 +59,8 @@ export interface PortfolioResult {
   years: YearReport[];
   summary: Summary;
   warnings: string[];
+  /** Plus/minusvalenza registrata da ogni vendita, per id della transazione. */
+  saleGains: Record<string, number>;
 }
 
 const key = (accountId: string, assetId: string) => `${accountId}::${assetId}`;
@@ -77,6 +79,7 @@ export function computePortfolio(data: AppData): PortfolioResult {
   const cash = new Map<string, AccountCash>();
   const years = new Map<number, YearReport>();
   const warnings: string[] = [];
+  const saleGains: Record<string, number> = {};
   let standaloneFees = 0;
   let interest = 0;
 
@@ -161,6 +164,7 @@ export function computePortfolio(data: AppData): PortfolioResult {
         p.realized += gain;
         p.fees += fees;
         yr.realized += gain;
+        saleGains[tx.id] = gain;
         c.cash += gross - fees;
         break;
       }
@@ -242,6 +246,7 @@ export function computePortfolio(data: AppData): PortfolioResult {
     cash: cashList,
     years: [...years.values()].sort((a, b) => b.year - a.year),
     warnings,
+    saleGains,
     summary: {
       marketValue,
       cost,

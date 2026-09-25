@@ -7,6 +7,7 @@ import { Accounts } from './pages/Accounts';
 import { Reports } from './pages/Reports';
 import { Settings } from './pages/Settings';
 import { Connections } from './pages/Connections';
+import { Transfers } from './pages/Transfers';
 import { useSync } from './sync';
 import { Icon } from './components/ui';
 
@@ -14,6 +15,7 @@ export type Page =
   | 'panoramica'
   | 'posizioni'
   | 'transazioni'
+  | 'trasferimenti'
   | 'strumenti'
   | 'conti'
   | 'collegamenti'
@@ -24,6 +26,7 @@ const NAV: { page: Page; label: string; icon: string }[] = [
   { page: 'panoramica', label: 'Panoramica', icon: 'dashboard' },
   { page: 'posizioni', label: 'Posizioni', icon: 'positions' },
   { page: 'transazioni', label: 'Transazioni', icon: 'transactions' },
+  { page: 'trasferimenti', label: 'Trasferimenti', icon: 'transfer' },
   { page: 'strumenti', label: 'Strumenti', icon: 'assets' },
   { page: 'conti', label: 'Conti', icon: 'accounts' },
   { page: 'collegamenti', label: 'Collegamenti', icon: 'link' },
@@ -86,6 +89,7 @@ export function App() {
         {page === 'panoramica' && <Dashboard go={go} />}
         {page === 'posizioni' && <Positions />}
         {page === 'transazioni' && <Transactions />}
+        {page === 'trasferimenti' && <Transfers />}
         {page === 'strumenti' && <Assets />}
         {page === 'conti' && <Accounts />}
         {page === 'collegamenti' && <Connections />}

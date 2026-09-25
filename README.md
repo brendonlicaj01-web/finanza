@@ -11,6 +11,9 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
   peso in portafoglio, P&L latente/realizzato e proventi, aggregati per strumento o per singolo conto.
 - **Transazioni**: acquisti, vendite, dividendi/cedole, interessi, depositi, prelievi, commissioni/imposte, con
   filtri e controllo che non si venda più di quanto posseduto.
+- **Trasferimenti**: riconosce i movimenti tra i tuoi conti (es. BTC da Trade Republic a OKX, bonifico dalla banca
+  al broker) che oggi risultano come vendita + acquisto o prelievo + versamento, con la plusvalenza "finta" che ne
+  deriva e gli invii senza controparte. Per ora è solo un'analisi: non modifica i dati.
 - **Strumenti**: azioni, ETF, obbligazioni, fondi, crypto, materie prime; aggiornamento rapido dei prezzi e aliquota
   fiscale per strumento (26% o 12,5% per titoli di Stato).
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.
@@ -139,10 +142,11 @@ src/
   lib/storage.ts     salvataggio locale e validazione dei backup
   lib/csv.ts         esportazione CSV
   lib/importers/     lettura dei file dei broker (SheetJS) e formati riconosciuti
+  lib/transfers.ts   riconoscimento dei trasferimenti tra conti (coppie uscita/entrata)
   lib/sync.ts        unione dei dati sincronizzati (conti, strumenti, transazioni, allineamento saldi)
   store.tsx          stato dell'app (React context + reducer), fotografia giornaliera del patrimonio
   sync.tsx           collegamenti e sincronizzazione automatica lato browser
-  pages/             Panoramica, Posizioni, Transazioni, Strumenti, Conti, Report, Impostazioni
+  pages/             Panoramica, Posizioni, Transazioni, Trasferimenti, Strumenti, Conti, Report, Impostazioni
   components/        componenti UI e grafici SVG
 server/
   plugin.ts          monta l'API locale /api dentro il server di Vite

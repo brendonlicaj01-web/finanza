@@ -315,6 +315,15 @@ h2 {
   white-space: nowrap;
 }
 
+.badge.conf-alta {
+  color: var(--pos);
+}
+
+.badge.conf-bassa {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
 .alert {
   background: var(--warn-bg);
   color: var(--warn-text);

@@ -49,8 +49,14 @@ Conflitti:
 
 ## Piano proposto, un passo alla volta
 
-1. **Riconoscimento (sola lettura).** Una pagina "Trasferimenti" che trova le coppie candidate: stesso strumento,
-   uscita e entrata in conti diversi, quantità simile, date vicine. Non modifica ancora niente.
+1. ✅ **Riconoscimento (sola lettura).** Pagina "Trasferimenti" (`src/lib/transfers.ts`, `src/pages/Transfers.tsx`):
+   - coppie uscita/entrata di titoli e crypto: stesso strumento (per le crypto basta il simbolo), conti diversi,
+     quantità in arrivo tra 80% e 100% di quella partita, entrata tra 2 giorni prima e 10 dopo. Almeno una metà
+     deve essere indicata dalla fonte come trasferimento (movimento speculare `:cash` o descrizione) oppure essere
+     una rettifica automatica al saldo;
+   - bonifici tra conti: prelievo e deposito di importo uguale o poco minore (fino a 2 € o 1%), entro 5 giorni;
+   - abbinamento uno a uno, affidabilità (probabile / possibile / da verificare) con i motivi;
+   - plusvalenza che oggi viene registrata sulla falsa vendita, e invii senza controparte.
 2. **Abbinamento e conferma.** L'utente conferma una coppia; l'abbinamento resta valido anche dopo le sync.
 3. **Effetto sul calcolo.** Una coppia confermata non è più né vendita né acquisto: il costo medio passa dal conto
    che invia a quello che riceve e la differenza di quantità diventa una commissione.
