@@ -142,6 +142,7 @@ solo le novità.
 | **OKX** | Cronologia del conto **Trading** e del conto **Funding** (due CSV): trascinali insieme. Le compravendite spot sono aggregate per ordine; i trasferimenti interni (Trading ↔ Funding, staking, Simple Earn) non vengono contati; le crypto depositate da wallet esterni entrano al valore in euro del giorno; i rendimenti (yield, staking, premi) sono proventi e la moneta ricevuta entra a quel valore; OKSOL è contato come SOL. |
 | **Trade Republic** | App o sito → Profilo → Transazioni → Esporta (CSV). Acquisti e piani di accumulo, dividendi, interessi, Saveback e bonus (proventi), imposte, commissioni, bonifici e trasferimenti di crypto. **Privacy**: i pagamenti con carta sono esclusi (o, a scelta nell'anteprima, ridotti a un totale mensile anonimo) e dei bonifici non vengono letti nomi, IBAN o causali. |
 | **DEGIRO** | Attività → Estratto conto: dall'apertura del conto a oggi → Esporta (CSV o Excel), in italiano o inglese. Le righe di uno stesso ordine (esecuzione, commissioni, Tobin tax, cambio valuta) vengono unite; i "Cash Sweep" verso flatex sono interni e ignorati; ogni prelievo è contato una volta sola; la liquidità è allineata al saldo finale. |
+| **Trezor** (Trezor Suite) | Per ogni account (Bitcoin #1, Ethereum #1, …): Transazioni → ⋯ accanto alla ricerca → Esporta → CSV. Trascina tutti i file insieme: finiscono nello stesso conto "Trezor". Entrate e uscite sono **trasferimenti crypto interni** valorizzati in euro al momento (colonna Fiat); la commissione di rete è compresa nell'invio o, per i token, un'uscita a parte; gli scambi nella stessa transazione sono vendita + acquisto. Token senza valore (airdrop truffaldini) e NFT sono ignorati. |
 | **Qualsiasi altro broker** (es. Directa) | Un CSV/Excel con almeno le colonne *Data*, *Tipo operazione* e *Importo* (o *Quantità* e *Prezzo*). Riconosciute anche *Descrizione*, *ISIN* (anche tra parentesi nella descrizione), *Commissioni*, *ID operazione* e *Saldo*: se c'è il saldo progressivo, la liquidità viene allineata. Tipi riconosciuti: acquisto/compra/buy, vendita/vendi/sell, dividendo/cedola, ritenuta, interessi, commissioni/imposte/bollo, bonifico/versamento/prelievo. |
 
 Obbligazioni e titoli di Stato usano quantità nominale e prezzo in percentuale (come nel portafoglio Fineco).
@@ -151,7 +152,8 @@ I CSV vengono letti come testo: le date italiane (gg/mm/aaaa) restano tali, i nu
 punto decimale e i file salvati da Excel con codifica Windows sono supportati. Nell'anteprima puoi scegliere il conto
 di destinazione o crearne uno nuovo (per il CSV generico il nome parte dal nome del file).
 
-Scalable Capital si collega in automatico tramite il suo CLI ufficiale (vedi sopra).
+Scalable Capital si collega in automatico tramite il suo CLI ufficiale (vedi sopra). Trust Wallet non ha un export:
+usa il collegamento Wallet crypto con l'indirizzo pubblico.
 
 ## Avvio da terminale
 

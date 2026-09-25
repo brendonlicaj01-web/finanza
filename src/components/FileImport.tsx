@@ -16,14 +16,15 @@ interface Pending {
 }
 
 /** Aggiunge alla coda; i file di broker "multi-file" (es. OKX Trading + Funding) vengono uniti in un solo import. */
-function enqueue(queue: Pending[], found: Pending[]): Pending[] {
+export function enqueue(queue: Pending[], found: Pending[]): Pending[] {
+  // Funzione pura (React può chiamarla due volte): si lavora su copie, mai sugli oggetti ricevuti.
   const out = queue.map((p) => ({ ...p }));
   for (const f of found) {
     const same = f.importer.multiFile && out.find((p) => p.importer.id === f.importer.id);
     if (same) {
       same.files = [...same.files, ...f.files];
       same.sheets = [...same.sheets, ...f.sheets];
-    } else out.push(f);
+    } else out.push({ ...f, files: [...f.files], sheets: [...f.sheets] });
   }
   return out;
 }
@@ -118,7 +119,10 @@ export function FileImport() {
             </li>
           ))}
         </ul>
-        <p>Altri broker (Directa, Degiro, Trade Republic, Scalable) in arrivo.</p>
+        <p>
+          Per i wallet senza export (es. Trust Wallet) usa il collegamento <strong>Wallet crypto</strong> con l'indirizzo
+          pubblico.
+        </p>
       </details>
       {queue[0] && (
         <ImportPreview

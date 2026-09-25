@@ -105,7 +105,9 @@ export function walletToSync(chains: ChainData[], book: Prices): SyncResult {
 
   const transactions: SyncTx[] = [];
   let swaps = 0;
-  for (const legs of aggregate(movements).values()) {
+  // In ordine di tempo: nello stesso giorno un invio non deve precedere la ricezione che lo rende possibile.
+  const ordered = [...aggregate(movements).values()].sort((a, b) => a[0].time - b[0].time);
+  for (const legs of ordered) {
     const { chain, hash, time } = legs[0];
     const date = dayOf(time);
     const base = `wallet:${chain}:${hash}`;
