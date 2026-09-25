@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isReady, redirectUrl, useSync } from '../sync';
+import { useStore } from '../store';
 import type { BankInfo, ConnectionInfo, ProviderInfo } from '../lib/sync-types';
 import { Card, Empty, Field, Icon, Modal, PageHead } from '../components/ui';
 import { FileImport } from '../components/FileImport';
@@ -37,6 +38,7 @@ export function Connections() {
   const { serverUp, providers, connections, status, busy, sync, syncAll, remove, refresh } = useSync();
   const [adding, setAdding] = useState<ProviderInfo | null>(null);
   const [authorizing, setAuthorizing] = useState<ConnectionInfo | null>(null);
+  const [removing, setRemoving] = useState<ConnectionInfo | null>(null);
   const byId = new Map(providers.map((p) => [p.id, p]));
 
   if (serverUp === false) {
@@ -122,11 +124,7 @@ export function Connections() {
                     <button
                       className="btn btn-ghost"
                       aria-label={`Rimuovi ${c.label}`}
-                      onClick={() =>
-                        confirm(
-                          `Rimuovere il collegamento "${c.label}"? Le chiavi vengono cancellate da questo computer; conto e transazioni già importati restano nell'app.`,
-                        ) && void remove(c.id)
-                      }
+                      onClick={() => setRemoving(c)}
                     >
                       <Icon name="trash" />
                     </button>
@@ -184,7 +182,84 @@ export function Connections() {
         />
       )}
       {authorizing && <AuthorizeBank connection={authorizing} onClose={() => setAuthorizing(null)} />}
+      {removing && <RemoveConnection connection={removing} onRemove={remove} onClose={() => setRemoving(null)} />}
     </div>
+  );
+}
+
+/** Rimozione di un collegamento: di norma se ne va anche il conto con le transazioni importate. */
+function RemoveConnection({
+  connection,
+  onRemove,
+  onClose,
+}: {
+  connection: ConnectionInfo;
+  onRemove: (id: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const { data, dispatch } = useStore();
+  const account = data.accounts.find((a) => a.connectionId === connection.id);
+  const txCount = account ? data.transactions.filter((t) => t.accountId === account.id).length : 0;
+  const [withData, setWithData] = useState(true);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const confirmRemove = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await onRemove(connection.id);
+      if (account && withData) dispatch({ type: 'deleteAccount', id: account.id });
+      // Altrimenti il conto diventa manuale: le transazioni restano, senza più legame con il collegamento.
+      else if (account) dispatch({ type: 'upsertAccount', account: { ...account, connectionId: undefined } });
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Rimuovi "${connection.label}"`} onClose={onClose}>
+      <div className="stack" style={{ gap: 12 }}>
+        <p style={{ margin: 0 }}>Le chiavi e gli indirizzi di questo collegamento vengono cancellati da questo computer.</p>
+        {account ? (
+          <label className="check">
+            <input type="checkbox" checked={withData} onChange={(e) => setWithData(e.target.checked)} />
+            <span>
+              Elimina anche il conto <strong>{account.name}</strong> e le sue {txCount}{' '}
+              {txCount === 1 ? 'transazione' : 'transazioni'}
+              <br />
+              <span className="small muted">
+                {withData
+                  ? 'Posizioni, liquidità e report non conterranno più nulla di questo collegamento.'
+                  : "Il conto resta nell'app come conto manuale, con le transazioni già importate."}
+              </span>
+            </span>
+          </label>
+        ) : (
+          <p className="small muted" style={{ margin: 0 }}>
+            Nessun conto è stato ancora creato da questo collegamento.
+          </p>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="modal-foot">
+        <span />
+        <div className="row">
+          <button type="button" className="btn" onClick={onClose}>
+            Annulla
+          </button>
+          <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void confirmRemove()}>
+            <Icon name="trash" /> Rimuovi
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
