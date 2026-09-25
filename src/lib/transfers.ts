@@ -109,13 +109,13 @@ export function decide(out: Transaction, into: Transaction, status: TransferLink
 const isCashType = (t: Transaction) => t.type === 'deposito' || t.type === 'prelievo';
 
 /**
- * @param options.labeledOnly considera solo i movimenti con l'etichetta "Trasferimento crypto interno"
- *   (è l'abbinamento usato dal calcolo del portafoglio per spostare il costo di carico).
+ * @param options.forCalc abbinamenti usati dal calcolo del portafoglio: coppie di titoli/crypto confermate
+ *   dall'utente, più quelle trovate in automatico tra movimenti etichettati "Trasferimento crypto interno".
  */
 export function findTransfers(
   data: AppData,
   saleGains: Record<string, number> = {},
-  options: { labeledOnly?: boolean } = {},
+  options: { forCalc?: boolean } = {},
 ): TransferAnalysis {
   const assets = new Map(data.assets.map((a) => [a.id, a]));
   const byExternal = new Map<string, Transaction>();
@@ -164,7 +164,7 @@ export function findTransfers(
   const legs = (types: Transaction['type'][]): Leg[] =>
     data.transactions
       .filter((t) => types.includes(t.type) && t.assetId && (t.quantity ?? 0) > 0 && !isNetworkFee(t))
-      .filter((t) => !options.labeledOnly || isTransfer(t))
+      .filter((t) => !options.forCalc || isTransfer(t))
       .filter((t) => !confirmedIds.has(t.id))
       .map((tx) => {
         const mirror = mirrorOf(tx);
@@ -281,8 +281,8 @@ export function findTransfers(
   const rejected = decided.filter((d) => d.link.status === 'rifiutato').map(describe);
 
   const securityPairs = [...confirmed.filter((p) => p.kind === 'titoli'), ...assign(securities)];
-  if (options.labeledOnly) {
-    const pairs = securityPairs.filter((p) => p.labeled);
+  if (options.forCalc) {
+    const pairs = securityPairs.filter((p) => p.labeled || p.status === 'confermato');
     const paired = new Set(pairs.flatMap((p) => [p.out.id, p.in.id]));
     return { pairs, rejected, unmatched: [...outs, ...ins].filter((l) => !paired.has(l.tx.id)).map((l) => l.tx) };
   }
@@ -343,12 +343,30 @@ export function findTransfers(
   return { pairs: [...securityPairs, ...cashPairs], rejected, unmatched };
 }
 
+/** Come il calcolo del portafoglio tratta i trasferimenti tra conti. */
+export interface TransferPlan {
+  /** Entrata → uscita da cui arriva il costo di carico. */
+  links: Map<string, string>;
+  /** Vendite/acquisti confermati come trasferimento: contano come uscita/entrata di un trasferimento. */
+  asTransfer: Set<string>;
+  /** Movimenti di liquidità speculari di quelle vendite/acquisti: non erano soldi veri, si ignorano. */
+  ignore: Set<string>;
+}
+
 /**
- * Coppie di trasferimenti con l'etichetta dedicata, per il calcolo: entrata → uscita da cui arriva il costo di
- * carico. Un'entrata senza uscita abbinata prende come costo il valore del giorno.
+ * Piano per il calcolo: coppie etichettate "Trasferimento crypto interno" (automatiche o confermate) e coppie
+ * vendita + acquisto confermate dall'utente. Un'entrata senza uscita abbinata prende il valore del giorno.
  */
-export function transferLinks(data: AppData): Map<string, string> {
-  return new Map(findTransfers(data, {}, { labeledOnly: true }).pairs.map((p) => [p.in.id, p.out.id]));
+export function transferPlan(data: AppData): TransferPlan {
+  const plan: TransferPlan = { links: new Map(), asTransfer: new Set(), ignore: new Set() };
+  for (const p of findTransfers(data, {}, { forCalc: true }).pairs) {
+    plan.links.set(p.in.id, p.out.id);
+    if (p.labeled) continue;
+    for (const leg of [p.out, p.in]) if (!isTransfer(leg)) plan.asTransfer.add(leg.id);
+    if (p.outCash) plan.ignore.add(p.outCash.id);
+    if (p.inCash) plan.ignore.add(p.inCash.id);
+  }
+  return plan;
 }
 
 /**

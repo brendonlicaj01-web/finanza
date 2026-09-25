@@ -24,8 +24,9 @@ export function Transfers() {
   const cash = visible.filter((p) => p.kind === 'liquidita');
   const hidden = analysis.pairs.length - visible.length;
 
-  const labeled = securities.filter((p) => p.labeled);
-  const pending = securities.filter((p) => !p.labeled);
+  // Contano come trasferimenti le coppie etichettate e quelle confermate; le altre sono ancora vendita + acquisto.
+  const labeled = securities.filter((p) => p.labeled || p.status === 'confermato');
+  const pending = securities.filter((p) => !p.labeled && p.status !== 'confermato');
   const toReview = visible.filter((p) => !p.status).length;
 
   const confirm = (p: TransferPair) => dispatch({ type: 'decideTransfer', link: decide(p.out, p.in, 'confermato') });
@@ -82,7 +83,7 @@ export function Transfers() {
 
       <div className="tiles">
         <Tile
-          label="Trasferimenti crypto interni"
+          label="Trasferimenti di titoli e crypto"
           value={labeled.length}
           sub="costo di carico spostato, nessuna plusvalenza"
         />
@@ -101,7 +102,7 @@ export function Transfers() {
 
       <Card
         title="Titoli e crypto"
-        sub="Con l'etichetta «Trasferimento crypto interno» quantità e costo di carico passano da un conto all'altro. Le coppie ancora registrate come vendita e acquisto sono solo segnalate."
+        sub="Per le coppie confermate (e per quelle etichettate «Trasferimento crypto interno») quantità e costo di carico passano da un conto all'altro, senza plusvalenza. Le coppie da confermare contano ancora come vendita e acquisto."
       >
         {securities.length === 0 ? (
           <Empty title="Nessun trasferimento riconosciuto" />
@@ -137,6 +138,11 @@ export function Transfers() {
                       <td className="num">
                         {p.labeled ? (
                           <span className="badge conf-alta">Trasferimento crypto interno</span>
+                        ) : p.status === 'confermato' ? (
+                          <>
+                            <span className="badge conf-alta">Trasferimento</span>
+                            <div className="cell-sub">nessuna plusvalenza</div>
+                          </>
                         ) : (
                           <>
                             {p.recordedGain !== undefined ? money(p.recordedGain, { sign: true }) : '—'}
@@ -266,9 +272,10 @@ export function Transfers() {
         </span>
       </label>
       <p className="small muted">
-        Le decisioni restano valide anche dopo sincronizzazioni e reimport. Per le coppie etichettate «Trasferimento
-        crypto interno» il costo di carico passa già da un conto all'altro (scartandole smette di farlo); per quelle
-        ancora registrate come vendita + acquisto o come bonifico, la conferma cambierà il calcolo nel prossimo passo.
+        Le decisioni restano valide anche dopo sincronizzazioni e reimport. Confermando una coppia di titoli o crypto
+        il costo di carico passa da un conto all'altro, la «vendita» non genera plusvalenza e i movimenti di liquidità
+        automatici che l'accompagnavano non contano più; scartandola o annullando la conferma torna tutto come prima.
+        Per i bonifici tra conti la conferma cambierà i report nel prossimo passo.
       </p>
     </div>
   );

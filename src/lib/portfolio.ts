@@ -1,6 +1,6 @@
 import type { Account, AppData, Asset, AssetType, Transaction } from './types';
 import { INFLOW_QTY, OUTFLOW_QTY, multiplierOf } from './types';
-import { transferLinks } from './transfers';
+import { transferPlan } from './transfers';
 
 /** Tolleranza per confronti tra quantità frazionarie (crypto, ETF frazionati). */
 const EPS = 1e-9;
@@ -123,16 +123,24 @@ export function computePortfolio(data: AppData): PortfolioResult {
     return p;
   };
 
-  // Trasferimenti interni abbinati: l'entrata riceve il costo di carico dell'uscita.
-  const links = transferLinks(data);
+  // Trasferimenti tra conti abbinati: l'entrata riceve il costo di carico dell'uscita. Le vendite/acquisti confermati
+  // come trasferimento contano come tali e i loro movimenti di liquidità speculari si ignorano.
+  const plan = transferPlan(data);
+  const links = plan.links;
   const carried = new Map<string, number>();
   const handle = (tx: Transaction) => {
+    if (plan.ignore.has(tx.id)) return;
+    const kind = plan.asTransfer.has(tx.id)
+      ? OUTFLOW_QTY.includes(tx.type)
+        ? 'trasf_uscita'
+        : 'trasf_entrata'
+      : tx.type;
     const c = cashOf(tx.accountId);
     const yr = yearOf(tx.date);
     const fees = tx.fees || 0;
     yr.fees += fees;
 
-    switch (tx.type) {
+    switch (kind) {
       case 'acquisto': {
         if (!tx.assetId) break;
         const p = positionOf(tx.accountId, tx.assetId);

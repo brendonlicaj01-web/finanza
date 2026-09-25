@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { quantityAt, sortTransactions } from '../lib/portfolio';
+import { transferPlan } from '../lib/transfers';
 import { ASSET_TX, OUTFLOW_QTY, TRADE_TX, TRANSFER_TX, TX_TYPES, multiplierOf, type Transaction, type TxType } from '../lib/types';
 import { date as fmtDate, money, price, parseNumber, qty, today } from '../lib/format';
 import { uid } from '../lib/id';
@@ -27,6 +28,8 @@ export function Transactions() {
 
   const accounts = new Map(data.accounts.map((a) => [a.id, a]));
   const assets = new Map(data.assets.map((a) => [a.id, a]));
+  // Vendite/acquisti confermati come trasferimento tra conti e i loro movimenti speculari (non conteggiati).
+  const plan = useMemo(() => transferPlan(data), [data]);
   const years = useMemo(
     () => [...new Set(data.transactions.map((t) => t.date.slice(0, 4)))].sort().reverse(),
     [data.transactions],
@@ -154,7 +157,8 @@ export function Transactions() {
                   const asset = t.assetId ? assets.get(t.assetId) : undefined;
                   const total = txTotal(t, multiplierOf(asset));
                   const out = OUTFLOW.includes(t.type);
-                  const moved = TRANSFER_TX.includes(t.type);
+                  const moved = TRANSFER_TX.includes(t.type) || plan.asTransfer.has(t.id);
+                  const ignored = plan.ignore.has(t.id);
                   return (
                     <tr key={t.id} className="clickable" onClick={() => setEditing(t)}>
                       <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.date)}</td>
@@ -168,6 +172,8 @@ export function Transactions() {
                             TRADE_TX.includes(t.type) ? `${qty(t.quantity ?? 0)} × ${price(t.price ?? 0)}` : '',
                             t.note,
                             t.fees > 0 ? `comm. ${money(t.fees)}` : '',
+                            plan.asTransfer.has(t.id) ? 'trasferimento tra conti confermato' : '',
+                            ignored ? 'movimento automatico del trasferimento, non conteggiato' : '',
                             t.externalId ? 'importata' : '',
                           ]
                             .filter(Boolean)
@@ -175,7 +181,7 @@ export function Transactions() {
                         </div>
                       </td>
                       <td className="hide-mobile">{accounts.get(t.accountId)?.name}</td>
-                      {moved ? (
+                      {moved || ignored ? (
                         <td className="num muted" title="Valore spostato tra i tuoi conti: non è un incasso né una spesa">
                           ⇄ {money(Math.abs(total))}
                         </td>

@@ -228,3 +228,61 @@ describe('conferma e scarto delle coppie (passo 2)', () => {
     expect(findTransfers(d).pairs).toMatchObject([{ kind: 'liquidita', status: 'confermato', days: 19 }]);
   });
 });
+
+describe('coppie vendita + acquisto confermate nel calcolo (passo 3)', () => {
+  // Come negli import delle versioni precedenti: vendita + prelievo speculare, acquisto + deposito speculare.
+  const setup = () => {
+    const d = base();
+    d.transactions = [
+      tx({ id: 'dep', accountId: 'tr', date: '2025-01-01', type: 'deposito', amount: 2000 }),
+      tx({ id: 'buy', accountId: 'tr', assetId: 'btc-tr', date: '2025-01-02', type: 'acquisto', quantity: 0.05, price: 40000 }),
+      ...transferLeg('tr', 'btc-tr', '2025-06-10', 'vendita', 0.05, 60000, 'tr:out', 'Inviati ad altro conto'),
+      ...transferLeg('okx', 'btc-okx', '2025-06-11', 'acquisto', 0.0499, 60000, 'okx:in', 'Deposito crypto (carico al valore del giorno)'),
+    ];
+    return d;
+  };
+  const leg = (d: AppData, id: string) => d.transactions.find((t) => t.externalId === id)!;
+
+  it('prima della conferma: plusvalenza finta e versamenti/prelievi gonfiati', () => {
+    const p = computePortfolio(setup());
+    expect(p.summary.realized).toBeCloseTo(1000);
+    expect(p.years[0]).toMatchObject({ deposits: 2000 + 2994, withdrawals: 3000 });
+  });
+
+  it('dopo la conferma: nessuna plusvalenza, il costo passa a OKX, spariscono i movimenti speculari', () => {
+    let d = setup();
+    d = reducer(d, { type: 'decideTransfer', link: decide(leg(d, 'tr:out'), leg(d, 'okx:in'), 'confermato') });
+    const p = computePortfolio(d);
+    expect(p.summary.realized).toBe(0);
+    expect(p.warnings).toEqual([]);
+    const at = (acc: string) => p.positions.find((x) => x.accountId === acc)!;
+    expect(at('tr')).toMatchObject({ quantity: 0, cost: 0, realized: 0 });
+    expect(at('okx').quantity).toBeCloseTo(0.0499);
+    expect(at('okx').cost).toBeCloseTo(2000);
+    // Liquidità: su TR restano i 2000 − 2000 spesi; su OKX nulla. Solo il versamento vero nei report.
+    expect(p.cash.find((c) => c.accountId === 'tr')?.cash).toBeCloseTo(0);
+    expect(p.cash.find((c) => c.accountId === 'okx')?.cash ?? 0).toBeCloseTo(0);
+    expect(p.years[0]).toMatchObject({ deposits: 2000, withdrawals: 0 });
+    expect(p.summary.netDeposits).toBe(2000);
+    // Nella pagina la coppia risulta confermata e non più "vendita + acquisto" con plusvalenza.
+    const pair = findTransfers(d, p.saleGains).pairs[0];
+    expect(pair.status).toBe('confermato');
+    expect(pair.recordedGain).toBeUndefined();
+  });
+
+  it('annullando la conferma torna tutto come prima', () => {
+    let d = setup();
+    const link = decide(leg(d, 'tr:out'), leg(d, 'okx:in'), 'confermato');
+    d = reducer(d, { type: 'decideTransfer', link });
+    d = reducer(d, { type: 'undoTransfer', id: link.id });
+    expect(computePortfolio(d).summary.realized).toBeCloseTo(1000);
+  });
+
+  it('le coppie solo proposte (non confermate) non cambiano il calcolo', () => {
+    const d = setup();
+    const pair = findTransfers(d).pairs[0];
+    expect(pair.status).toBeUndefined();
+    expect(pair.labeled).toBe(false);
+    expect(computePortfolio(d).summary.realized).toBeCloseTo(1000);
+  });
+});

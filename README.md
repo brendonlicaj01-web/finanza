@@ -17,7 +17,9 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
   simile, date vicine); un'entrata senza controparte prende come costo il valore del giorno. La pagina Trasferimenti
   mostra le coppie, quelle ancora registrate come vendita + acquisto (titoli, import precedenti), i bonifici tra
   conti e gli invii senza controparte: ogni coppia si **conferma** o si **scarta**, e i movimenti rimasti soli si
-  abbinano a mano. Le decisioni restano valide dopo sincronizzazioni e reimport.
+  abbinano a mano. Le decisioni restano valide dopo sincronizzazioni e reimport. Una coppia confermata registrata come
+  vendita + acquisto diventa un trasferimento anche nei conti: niente plusvalenza, costo di carico spostato, e i
+  prelievi/versamenti automatici che l'accompagnavano non contano più.
 - **Strumenti**: azioni, ETF, obbligazioni, fondi, crypto, materie prime; aggiornamento rapido dei prezzi e aliquota
   fiscale per strumento (26% o 12,5% per titoli di Stato).
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.

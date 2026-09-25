@@ -71,7 +71,11 @@ Conflitti:
    eliminando un conto. Una coppia confermata vale sempre (e le sue metà non vengono proposte altrove), una
    scartata non viene più proposta (si può ripristinare). Per le coppie etichettate "Trasferimento crypto
    interno" la decisione cambia già il calcolo; per vendita + acquisto e bonifici l'effetto arriva al passo 3.
-3. **Effetto sul calcolo.** Una coppia confermata non è più né vendita né acquisto: il costo medio passa dal conto
-   che invia a quello che riceve e la differenza di quantità diventa una commissione.
+3. ✅ **Effetto sul calcolo.** Una coppia di titoli/crypto confermata non è più né vendita né acquisto
+   (`transferPlan`): la "vendita" toglie le quantità al costo medio senza plusvalenza, l'"acquisto" riceve quel
+   costo (anche per la parte persa in commissioni di rete, che resta sul costo delle quantità arrivate), e i
+   movimenti di liquidità speculari creati dagli import (`:cash`) non contano più, né in liquidità né nei report.
+   Le coppie solo proposte non cambiano il calcolo; annullare la conferma ripristina tutto. Nell'elenco
+   Transazioni le righe coinvolte sono indicate come trasferimento o movimento non conteggiato.
 4. **Liquidità.** Anche i bonifici tra conti propri, abbinati, non contano più come versamento o prelievo nel report.
 5. **Unificazione degli strumenti.** Rendere uguale BTC di Scalable a BTC di TR/OKX.
