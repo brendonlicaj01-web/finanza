@@ -223,3 +223,39 @@ describe('mergeSync con dati più completi dalla fonte', () => {
     expect(stats.updated).toBe(0);
   });
 });
+
+describe('mergeSync: movimenti che la fonte non produce più', () => {
+  it('sostituisce vendita + prelievo speculare con un trasferimento interno', () => {
+    const c = { id: 'file:trade-republic', label: 'Trade Republic' };
+    const btc = { key: 'crypto:BTC', symbol: 'BTC', name: 'Bitcoin', type: 'crypto' as const };
+    const r = (transactions: SyncResult['transactions'], remove?: string[]): SyncResult => ({
+      accountName: 'Trade Republic',
+      accountKind: 'broker',
+      currency: 'EUR',
+      assets: [btc],
+      transactions,
+      remove,
+      warnings: [],
+    });
+    const buy = { externalId: 'tr:b', date: '2025-01-02', type: 'acquisto' as const, assetKey: 'crypto:BTC', quantity: 0.01, price: 40000, fees: 0 };
+    const old = mergeSync(emptyData(), c, r([
+      buy,
+      { externalId: 'tr:o', date: '2025-06-10', type: 'vendita', assetKey: 'crypto:BTC', quantity: 0.01, price: 60000, fees: 0 },
+      { externalId: 'tr:o:cash', date: '2025-06-10', type: 'prelievo', amount: 600, fees: 0 },
+    ]), '2025-07-01').data;
+    expect(computePortfolio(old).summary.realized).toBeCloseTo(200);
+
+    const { data, stats } = mergeSync(old, c, r([
+      buy,
+      { externalId: 'tr:o', date: '2025-06-10', type: 'trasf_uscita', assetKey: 'crypto:BTC', quantity: 0.01, price: 60000, fees: 0, rev: 1 },
+    ], ['tr:o:cash']), '2025-07-02');
+    expect(stats).toMatchObject({ added: 0, updated: 1, removed: 1 });
+    expect(data.transactions.map((t) => [t.externalId, t.type])).toEqual([
+      ['tr:b', 'acquisto'],
+      ['tr:o', 'trasf_uscita'],
+    ]);
+    const p = computePortfolio(data);
+    expect(p.summary.realized).toBe(0);
+    expect(p.summary.netDeposits).toBe(0);
+  });
+});

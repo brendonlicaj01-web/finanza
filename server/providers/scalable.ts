@@ -172,6 +172,7 @@ export function scalableToSync(
 
   // ---- Transazioni ----
   const transactions: SyncTx[] = [];
+  const remove: string[] = [];
   const unknown = new Map<string, number>();
   const skippedStatus = new Map<string, number>();
   let cancellations = 0;
@@ -247,6 +248,23 @@ export function scalableToSync(
       const inflow = /_IN$|RECEIPT|DELIVERY_IN|BONUS|SPLIT_IN/i.test(kindNt);
       const value = amount || Math.abs(num(nt.total_amount)) || qty * (Math.abs(num(nt.average_price)) || 0);
       const key = touch(isin, str(sec.name), str(sec.security_type));
+      if (assets.get(key)?.type === 'crypto') {
+        // Crypto da/verso un altro conto o wallet: trasferimento interno, non compravendita. Sostituisce
+        // acquisto/vendita con movimento di liquidità speculare delle versioni precedenti.
+        transactions.push({
+          externalId: id,
+          date,
+          type: inflow ? 'trasf_entrata' : 'trasf_uscita',
+          assetKey: key,
+          quantity: qty,
+          price: value / qty,
+          fees: 0,
+          note: inflow ? 'Ricevute da altro conto o wallet' : 'Inviate ad altro conto o wallet',
+          rev: rev + 2,
+        });
+        remove.push(`${id}:cash`);
+        continue;
+      }
       if (value) {
         transactions.push({ externalId: `${id}:cash`, date, type: inflow ? 'deposito' : 'prelievo', amount: r2(value), fees: 0, note: inflow ? 'Titoli trasferiti in entrata' : 'Titoli trasferiti in uscita', rev });
       }
@@ -323,6 +341,7 @@ export function scalableToSync(
     holdings,
     cash: Number.isFinite(cash) ? r2(cash) : undefined,
     complete: true,
+    remove,
     warnings,
   };
 }

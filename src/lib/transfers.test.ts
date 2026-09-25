@@ -116,3 +116,46 @@ describe('findTransfers', () => {
     expect(pairs).toEqual([]);
   });
 });
+
+describe('etichetta "Trasferimento crypto interno"', () => {
+  const labeled = () => {
+    const d = base();
+    d.transactions = [
+      tx({ accountId: 'tr', date: '2025-01-01', type: 'deposito', amount: 2001 }),
+      tx({ accountId: 'tr', assetId: 'btc-tr', date: '2025-01-02', type: 'acquisto', quantity: 0.05, price: 40000, fees: 1 }),
+      tx({ id: 'out', accountId: 'tr', assetId: 'btc-tr', date: '2025-06-10', type: 'trasf_uscita', quantity: 0.05, price: 60000, externalId: 'tr:out' }),
+      // Registrata dal wallet un giorno prima (fuso orario): il costo arriva comunque dall'uscita.
+      tx({ id: 'in', accountId: 'okx', assetId: 'btc-okx', date: '2025-06-09', type: 'trasf_entrata', quantity: 0.0499, price: 60000, externalId: 'okx:f:1' }),
+    ];
+    return d;
+  };
+
+  it('sposta quantità e costo di carico, senza plusvalenza né versamenti o prelievi', () => {
+    const p = computePortfolio(labeled());
+    const at = (acc: string) => p.positions.find((x) => x.accountId === acc)!;
+    expect(at('tr')).toMatchObject({ quantity: 0, cost: 0, realized: 0 });
+    // 0,0001 BTC di commissione di rete: il costo di 2.001 € resta tutto sulle monete arrivate.
+    expect(at('okx').quantity).toBeCloseTo(0.0499);
+    expect(at('okx').cost).toBeCloseTo(2001);
+    expect(p.summary.realized).toBe(0);
+    expect(p.summary.netDeposits).toBe(2001);
+    expect(p.cash.find((c) => c.accountId === 'okx')?.cash ?? 0).toBe(0);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it('abbina le due metà etichettate e le segnala come già sistemate', () => {
+    const { pairs, unmatched } = findTransfers(labeled());
+    expect(unmatched).toEqual([]);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ labeled: true, confidence: 'alta', recordedGain: undefined, days: -1 });
+  });
+
+  it('senza controparte: l\'uscita non genera plusvalenza, l\'entrata prende il valore del giorno', () => {
+    const d = labeled();
+    d.transactions[3] = { ...d.transactions[3], date: '2025-09-01' }; // troppo lontana per essere la stessa
+    const p = computePortfolio(d);
+    expect(p.summary.realized).toBe(0);
+    expect(p.positions.find((x) => x.accountId === 'okx')!.cost).toBeCloseTo(0.0499 * 60000);
+    expect(findTransfers(d).unmatched.map((t) => t.id)).toEqual(['in', 'out']);
+  });
+});

@@ -1,5 +1,5 @@
 import type { AppData, Asset, Transaction } from './types';
-import { multiplierOf } from './types';
+import { INFLOW_QTY, OUTFLOW_QTY, multiplierOf } from './types';
 import type { SyncResult } from './sync-types';
 import { computePortfolio, quantityAt } from './portfolio';
 import { uid } from './id';
@@ -8,6 +8,8 @@ export interface MergeStats {
   added: number;
   /** Transazioni già presenti aggiornate con dati più completi della fonte. */
   updated: number;
+  /** Transazioni importate in passato che la fonte non produce più. */
+  removed: number;
   newAssets: number;
   adjustments: number;
   warnings: string[];
@@ -48,9 +50,13 @@ export function mergeSync(
   // Con lo storico completo, gli allineamenti automatici fatti in passato si ricalcolano da zero:
   // erano serviti a compensare operazioni che allora mancavano.
   const autoAdj = `${connection.id}:adj`;
-  const base = result.complete
-    ? data.transactions.filter((t) => !(t.accountId === accountId && !t.edited && t.externalId?.startsWith(autoAdj)))
-    : data.transactions;
+  const obsolete = new Set(result.remove ?? []);
+  const dropped = (t: Transaction) =>
+    t.accountId === accountId && !t.edited && !!t.externalId && obsolete.has(t.externalId);
+  const removed = data.transactions.filter(dropped).length;
+  const base = data.transactions.filter(
+    (t) => !dropped(t) && !(result.complete && t.accountId === accountId && !t.edited && t.externalId?.startsWith(autoAdj)),
+  );
   const firstSync = !!result.complete || !base.some((t) => t.accountId === accountId);
 
   // ---- Strumenti ----
@@ -167,7 +173,7 @@ export function mergeSync(
     const net = (assetId: string) => quantityAt(transactions, accountId, assetId, '9999-12-31');
     const ids = new Set([
       ...actual.keys(),
-      ...accountTx.filter((t) => t.assetId && (t.type === 'acquisto' || t.type === 'vendita')).map((t) => t.assetId!),
+      ...accountTx.filter((t) => t.assetId && (INFLOW_QTY.includes(t.type) || OUTFLOW_QTY.includes(t.type))).map((t) => t.assetId!),
     ]);
     for (const assetId of ids) {
       const have = net(assetId);
@@ -228,6 +234,6 @@ export function mergeSync(
   transactions = [...transactions, ...adjustments];
   return {
     data: { ...data, accounts, assets, transactions },
-    stats: { added: incoming.length, updated: replaced.size, newAssets, adjustments: changedAdj, warnings },
+    stats: { added: incoming.length, updated: replaced.size, removed, newAssets, adjustments: changedAdj, warnings },
   };
 }

@@ -50,6 +50,7 @@ export const okx: FileImporter = {
     const funding = locate(sheets, FUNDING);
     const warnings: string[] = [];
     const transactions: SyncTx[] = [];
+    const remove: string[] = [];
     const assets = new Map<string, SyncAsset>();
     const lastPrice = new Map<string, { date: string; price: number }>();
 
@@ -201,25 +202,21 @@ export const okx: FileImporter = {
             transactions.push({ externalId: id, date, type: inflow ? 'deposito' : 'prelievo', amount: round(qty, 2), fees: 0, note: `OKX: ${type}` });
             continue;
           }
-          // Crypto in entrata/uscita da wallet esterni: valorizzata in EUR al giorno del movimento.
-          transactions.push({
-            externalId: `${id}:cash`,
-            date,
-            type: inflow ? 'deposito' : 'prelievo',
-            amount: Math.round(eur * 100) / 100,
-            fees: 0,
-            note: inflow ? `Deposito di ${symbol} da wallet esterno` : `Prelievo di ${symbol} verso wallet esterno`,
-          });
+          // Crypto in entrata/uscita da altri conti o wallet: trasferimento interno, non compravendita.
+          // Il valore del giorno serve solo se l'altra metà non è tra i conti dell'app.
           transactions.push({
             externalId: id,
             date,
-            type: inflow ? 'acquisto' : 'vendita',
+            type: inflow ? 'trasf_entrata' : 'trasf_uscita',
             assetKey: touch(symbol, date, unit),
             quantity: round(qty),
             price: unit,
             fees: 0,
-            note: inflow ? 'Deposito crypto (carico al valore del giorno)' : 'Prelievo crypto',
+            note: inflow ? `Ricevute da altro conto o wallet (${symbol})` : `Inviate ad altro conto o wallet (${symbol})`,
+            rev: 1,
           });
+          // Versioni precedenti: acquisto/vendita con deposito/prelievo speculare.
+          remove.push(`${id}:cash`);
           continue;
         }
 
@@ -269,6 +266,7 @@ export const okx: FileImporter = {
       transactions: transactions.sort((a, b) => a.date.localeCompare(b.date)),
       // La liquidità si allinea solo se ci sono entrambi i file (altrimenti il saldo sarebbe parziale).
       cash: trading && funding ? Math.round(((tradingEur?.value ?? 0) + (fundingEur?.value ?? 0)) * 100) / 100 : undefined,
+      remove,
       warnings,
     };
   },

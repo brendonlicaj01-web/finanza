@@ -57,6 +57,12 @@ Conflitti:
    - bonifici tra conti: prelievo e deposito di importo uguale o poco minore (fino a 2 € o 1%), entro 5 giorni;
    - abbinamento uno a uno, affidabilità (probabile / possibile / da verificare) con i motivi;
    - plusvalenza che oggi viene registrata sulla falsa vendita, e invii senza controparte.
+   ✅ **Etichetta "Trasferimento crypto interno"** (`trasf_uscita` / `trasf_entrata`): Trade Republic, OKX e
+   Scalable registrano così le crypto inviate/ricevute, senza movimento di liquidità speculare. Il calcolo abbina
+   le due metà etichettate con le stesse regole (`transferLinks`) e sposta il costo medio; un'entrata senza
+   controparte usa il valore del giorno. I dati importati prima si convertono reimportando i file (TR, OKX) o alla
+   prossima sincronizzazione (Scalable): la transazione si aggiorna per `rev` e il movimento `:cash` si elimina
+   (`SyncResult.remove`).
 2. **Abbinamento e conferma.** L'utente conferma una coppia; l'abbinamento resta valido anche dopo le sync.
 3. **Effetto sul calcolo.** Una coppia confermata non è più né vendita né acquisto: il costo medio passa dal conto
    che invia a quello che riceve e la differenza di quantità diventa una commissione.

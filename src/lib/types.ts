@@ -64,7 +64,9 @@ export type TxType =
   | 'interessi'
   | 'deposito'
   | 'prelievo'
-  | 'commissione';
+  | 'commissione'
+  | 'trasf_uscita'
+  | 'trasf_entrata';
 
 export const TX_TYPES: { value: TxType; label: string }[] = [
   { value: 'acquisto', label: 'Acquisto' },
@@ -74,12 +76,26 @@ export const TX_TYPES: { value: TxType; label: string }[] = [
   { value: 'deposito', label: 'Deposito' },
   { value: 'prelievo', label: 'Prelievo' },
   { value: 'commissione', label: 'Commissione / imposta' },
+  { value: 'trasf_uscita', label: 'Trasferimento crypto interno (uscita)' },
+  { value: 'trasf_entrata', label: 'Trasferimento crypto interno (entrata)' },
 ];
 
+/**
+ * Trasferimenti di crypto tra i propri conti o wallet: spostano quantità e costo di carico, non sono
+ * compravendite (nessuna plus/minusvalenza) né versamenti o prelievi di liquidità.
+ */
+export const TRANSFER_TX: TxType[] = ['trasf_uscita', 'trasf_entrata'];
 /** Tipi che si riferiscono a uno strumento. */
-export const ASSET_TX: TxType[] = ['acquisto', 'vendita', 'dividendo'];
-/** Tipi con quantità × prezzo; gli altri usano `amount`. */
-export const TRADE_TX: TxType[] = ['acquisto', 'vendita'];
+export const ASSET_TX: TxType[] = ['acquisto', 'vendita', 'dividendo', ...TRANSFER_TX];
+/**
+ * Tipi con quantità × prezzo; gli altri usano `amount`. Per i trasferimenti il prezzo è il valore del giorno,
+ * usato come costo di carico solo se l'altra metà del trasferimento non è tra i conti dell'app.
+ */
+export const TRADE_TX: TxType[] = ['acquisto', 'vendita', ...TRANSFER_TX];
+/** Movimenti che aumentano la quantità posseduta in un conto. */
+export const INFLOW_QTY: TxType[] = ['acquisto', 'trasf_entrata'];
+/** Movimenti che riducono la quantità posseduta in un conto. */
+export const OUTFLOW_QTY: TxType[] = ['vendita', 'trasf_uscita'];
 
 export interface Transaction {
   id: string;

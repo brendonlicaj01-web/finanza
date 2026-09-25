@@ -1,5 +1,6 @@
 import type { Account, AppData, Asset, AssetType, Transaction } from './types';
-import { multiplierOf } from './types';
+import { INFLOW_QTY, OUTFLOW_QTY, multiplierOf } from './types';
+import { transferLinks } from './transfers';
 
 /** Tolleranza per confronti tra quantità frazionarie (crypto, ETF frazionati). */
 const EPS = 1e-9;
@@ -122,7 +123,10 @@ export function computePortfolio(data: AppData): PortfolioResult {
     return p;
   };
 
-  for (const tx of sortTransactions(data.transactions)) {
+  // Trasferimenti interni abbinati: l'entrata riceve il costo di carico dell'uscita.
+  const links = transferLinks(data);
+  const carried = new Map<string, number>();
+  const handle = (tx: Transaction) => {
     const c = cashOf(tx.accountId);
     const yr = yearOf(tx.date);
     const fees = tx.fees || 0;
@@ -168,6 +172,46 @@ export function computePortfolio(data: AppData): PortfolioResult {
         c.cash += gross - fees;
         break;
       }
+      case 'trasf_uscita': {
+        // Esce la quantità con il suo costo medio: nessuna plusvalenza e nessun movimento di liquidità.
+        if (!tx.assetId) break;
+        const p = positionOf(tx.accountId, tx.assetId);
+        let qty = tx.quantity ?? 0;
+        if (qty > p.quantity + EPS) {
+          const name = assets.get(tx.assetId)?.symbol ?? tx.assetId;
+          warnings.push(
+            `Trasferimento del ${tx.date} di ${qty} ${name}: quantità superiore a quella posseduta (${round(p.quantity)}).`,
+          );
+          qty = p.quantity;
+        }
+        const costOut = p.quantity > EPS ? (p.cost / p.quantity) * qty : 0;
+        p.quantity -= qty;
+        p.cost -= costOut;
+        if (p.quantity < EPS) {
+          p.quantity = 0;
+          p.cost = 0;
+        }
+        carried.set(tx.id, costOut);
+        standaloneFees += fees;
+        c.cash -= fees;
+        break;
+      }
+      case 'trasf_entrata': {
+        // Costo di carico dal conto di provenienza; se non è tra i conti dell'app, il valore del giorno.
+        if (!tx.assetId) break;
+        const p = positionOf(tx.accountId, tx.assetId);
+        const qty = tx.quantity ?? 0;
+        const from = links.get(tx.id);
+        const cost =
+          from !== undefined && carried.has(from)
+            ? carried.get(from)!
+            : qty * (tx.price ?? 0) * multiplierOf(assets.get(tx.assetId));
+        p.quantity += qty;
+        p.cost += cost;
+        standaloneFees += fees;
+        c.cash -= fees;
+        break;
+      }
       case 'dividendo': {
         const amount = (tx.amount ?? 0) - fees;
         if (tx.assetId) positionOf(tx.accountId, tx.assetId).income += amount;
@@ -205,6 +249,24 @@ export function computePortfolio(data: AppData): PortfolioResult {
         c.cash -= amount;
         break;
       }
+    }
+  };
+
+  // Un'entrata datata prima della sua uscita (fusi orari, date di valuta) aspetta l'uscita.
+  const waiting = new Map<string, Transaction>();
+  const done = new Set<string>();
+  for (const tx of sortTransactions(data.transactions)) {
+    const from = links.get(tx.id);
+    if (from !== undefined && !done.has(from)) {
+      waiting.set(from, tx);
+      continue;
+    }
+    handle(tx);
+    done.add(tx.id);
+    const next = waiting.get(tx.id);
+    if (next) {
+      waiting.delete(tx.id);
+      handle(next);
     }
   }
 
@@ -276,8 +338,8 @@ export function quantityAt(
   for (const tx of txs) {
     if (tx.id === excludeId || tx.accountId !== accountId || tx.assetId !== assetId || tx.date > date)
       continue;
-    if (tx.type === 'acquisto') q += tx.quantity ?? 0;
-    if (tx.type === 'vendita') q -= tx.quantity ?? 0;
+    if (INFLOW_QTY.includes(tx.type)) q += tx.quantity ?? 0;
+    if (OUTFLOW_QTY.includes(tx.type)) q -= tx.quantity ?? 0;
   }
   return round(q);
 }

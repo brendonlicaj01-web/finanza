@@ -61,6 +61,7 @@ export const tradeRepublic: FileImporter = {
 
     const warnings: string[] = [];
     const transactions: SyncTx[] = [];
+    const remove: string[] = [];
     const assets = new Map<string, SyncAsset>();
     const lastPrice = new Map<string, { date: string; price: number }>();
     const unknown = new Map<string, number>();
@@ -146,6 +147,24 @@ export const tradeRepublic: FileImporter = {
           if (!key || !shares) break;
           const inflow = type === 'FREE_RECEIPT';
           const unit = price || lastPrice.get(key)?.price || 0;
+          if (assets.get(key)?.type === 'crypto') {
+            // Crypto inviate o ricevute da un altro conto/wallet: trasferimento interno, non compravendita.
+            // Sostituisce la vendita/acquisto con movimento di liquidità delle versioni precedenti.
+            transactions.push({
+              externalId: id,
+              date,
+              type: inflow ? 'trasf_entrata' : 'trasf_uscita',
+              assetKey: key,
+              quantity: Math.abs(shares),
+              price: unit,
+              fees: costs,
+              note: inflow ? 'Ricevute da altro conto o wallet' : 'Inviate ad altro conto o wallet',
+              rev: 1,
+            });
+            remove.push(`${id}:cash`);
+            if (inflow && unit) seenPrice(key, date, unit);
+            break;
+          }
           if (!unit) warnings.push(`Trasferimento di ${assets.get(key)?.symbol} del ${date} senza prezzo: valorizzato a 0.`);
           const value = r2(Math.abs(shares) * unit);
           if (value) {
@@ -280,6 +299,7 @@ export const tradeRepublic: FileImporter = {
       currency: 'EUR',
       assets: [...assets.values()],
       transactions: transactions.sort((a, b) => a.date.localeCompare(b.date)),
+      remove,
       warnings,
     };
   },

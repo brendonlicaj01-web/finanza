@@ -146,3 +146,19 @@ describe('Scalable con dettagli delle transazioni', () => {
     expect(assetType('')).toBe('altro');
   });
 });
+
+describe('Scalable: trasferimenti di crypto', () => {
+  it('le crypto trasferite sono trasferimenti interni, i titoli restano come prima', () => {
+    const items = [
+      { id: 'c1', summary_type: 'BrokerNonTradeSecurityTransactionSummary', status: 'SETTLED', last_event_datetime: '2026-04-01T10:00:00Z', isin: 'XF000BTC0017', quantity: '0.02', amount: '1200', non_trade_security_transaction_type: 'SECURITY_TRANSFER_OUT' },
+      { id: 'e1', summary_type: 'BrokerNonTradeSecurityTransactionSummary', status: 'SETTLED', last_event_datetime: '2026-04-02T10:00:00Z', isin: 'IE00BK5BQT80', quantity: '3', amount: '390', non_trade_security_transaction_type: 'SECURITY_TRANSFER_IN' },
+    ];
+    const r = scalableToSync({ items: [] }, items, { cash_balance: '0' }, 'EUR');
+    const byId = Object.fromEntries(r.transactions.map((t) => [t.externalId, t]));
+    expect(byId['scalable:c1']).toMatchObject({ type: 'trasf_uscita', quantity: 0.02, price: 60000, rev: 3 });
+    expect(byId['scalable:c1:cash']).toBeUndefined();
+    expect(r.remove).toEqual(['scalable:c1:cash']);
+    expect(byId['scalable:e1']).toMatchObject({ type: 'acquisto', quantity: 3 });
+    expect(byId['scalable:e1:cash']).toMatchObject({ type: 'deposito', amount: 390 });
+  });
+});

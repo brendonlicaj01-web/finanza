@@ -58,6 +58,11 @@ export interface SyncResult {
    * (quando lo storico era incompleto) vengono ricalcolati da zero.
    */
   complete?: boolean;
+  /**
+   * Transazioni importate in passato che la fonte non produce più (es. il movimento di liquidità speculare di un
+   * trasferimento, prima registrato come vendita + prelievo): si eliminano, salvo modifiche fatte a mano.
+   */
+  remove?: string[];
   warnings: string[];
 }
 

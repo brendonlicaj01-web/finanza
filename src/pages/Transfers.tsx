@@ -2,11 +2,15 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { findTransfers, type Confidence, type TransferPair } from '../lib/transfers';
 import { date as fmtDate, money, qty } from '../lib/format';
+import { OUTFLOW_QTY } from '../lib/types';
 import { Card, Empty, PageHead, Tile } from '../components/ui';
 
 const CONF_LABEL: Record<Confidence, string> = { alta: 'Probabile', media: 'Possibile', bassa: 'Da verificare' };
 
-/** Trasferimenti tra i propri conti riconosciuti nei dati (passo 1: solo analisi, nessuna modifica). */
+/**
+ * Trasferimenti tra i propri conti riconosciuti nei dati. Le coppie con l'etichetta "Trasferimento crypto interno"
+ * sono già calcolate come tali; le altre (vendita + acquisto, prelievo + versamento) sono solo segnalate.
+ */
 export function Transfers() {
   const { data, result } = useStore();
   const analysis = useMemo(() => findTransfers(data, result.saleGains), [data, result.saleGains]);
@@ -19,7 +23,9 @@ export function Transfers() {
   const cash = visible.filter((p) => p.kind === 'liquidita');
   const hidden = analysis.pairs.length - visible.length;
 
-  const fakeGains = securities.reduce((s, p) => s + (p.recordedGain ?? 0), 0);
+  const labeled = securities.filter((p) => p.labeled);
+  const pending = securities.filter((p) => !p.labeled);
+  const fakeGains = pending.reduce((s, p) => s + (p.recordedGain ?? 0), 0);
   const doubled = cash.reduce((s, p) => s + (p.out.amount ?? 0), 0);
 
   const route = (p: TransferPair) => (
@@ -44,20 +50,31 @@ export function Transfers() {
     <div className="stack">
       <PageHead
         title="Trasferimenti tra conti"
-        sub="Movimenti che sembrano spostamenti tra i tuoi conti (non compravendite né versamenti). Per ora è solo un'analisi: non viene modificato nulla."
+        sub="Movimenti che spostano crypto, titoli o liquidità tra i tuoi conti: non sono compravendite né versamenti."
       />
 
       <div className="tiles">
-        <Tile label="Titoli e crypto trasferiti" value={securities.length} sub="coppie uscita → entrata" />
         <Tile
-          label="Plus/minus da trasferimenti"
-          value={money(fakeGains, { sign: true })}
-          sub="oggi contate come realizzate, ma non c'è stata vendita"
+          label="Trasferimenti crypto interni"
+          value={labeled.length}
+          sub="costo di carico spostato, nessuna plusvalenza"
+        />
+        <Tile
+          label="Ancora come vendita e acquisto"
+          value={pending.length}
+          sub={
+            pending.length
+              ? `${money(fakeGains, { sign: true })} contati come realizzati, ma non c'è stata vendita`
+              : 'nessuna coppia da sistemare'
+          }
         />
         <Tile label="Bonifici tra conti" value={cash.length} sub={`${money(doubled)} contati come versamenti e prelievi`} />
       </div>
 
-      <Card title="Titoli e crypto" sub="Chi invia registra una vendita, chi riceve un acquisto al valore del giorno.">
+      <Card
+        title="Titoli e crypto"
+        sub="Con l'etichetta «Trasferimento crypto interno» quantità e costo di carico passano da un conto all'altro. Le coppie ancora registrate come vendita e acquisto sono solo segnalate."
+      >
         {securities.length === 0 ? (
           <Empty title="Nessun trasferimento riconosciuto" />
         ) : (
@@ -69,7 +86,7 @@ export function Transfers() {
                   <th>Strumento</th>
                   <th className="num">Quantità</th>
                   <th className="num hide-mobile">Valore</th>
-                  <th className="num">Plus/minus registrata</th>
+                  <th className="num">Effetto oggi</th>
                   <th>Affidabilità</th>
                 </tr>
               </thead>
@@ -88,7 +105,16 @@ export function Transfers() {
                         {p.difference > 0 && <div className="cell-sub">arrivati {qty(p.in.quantity ?? 0)}</div>}
                       </td>
                       <td className="num hide-mobile">{money((p.out.quantity ?? 0) * (p.out.price ?? 0))}</td>
-                      <td className="num">{p.recordedGain !== undefined ? money(p.recordedGain, { sign: true }) : '—'}</td>
+                      <td className="num">
+                        {p.labeled ? (
+                          <span className="badge conf-alta">Trasferimento crypto interno</span>
+                        ) : (
+                          <>
+                            {p.recordedGain !== undefined ? money(p.recordedGain, { sign: true }) : '—'}
+                            <div className="cell-sub">come vendita + acquisto</div>
+                          </>
+                        )}
+                      </td>
                       <td>{badge(p)}</td>
                     </tr>
                   );
@@ -153,7 +179,7 @@ export function Transfers() {
                     <td>{accounts.get(t.accountId)}</td>
                     <td>
                       {assets.get(t.assetId ?? '')?.symbol}{' '}
-                      <span className="badge">{t.type === 'vendita' ? 'in uscita' : 'in entrata'}</span>
+                      <span className="badge">{OUTFLOW_QTY.includes(t.type) ? 'in uscita' : 'in entrata'}</span>
                     </td>
                     <td className="num">{qty(t.quantity ?? 0)}</td>
                   </tr>
@@ -175,8 +201,9 @@ export function Transfers() {
         </span>
       </label>
       <p className="small muted">
-        Sotto l'affidabilità trovi perché due movimenti sono stati abbinati. Nel prossimo passo potrai confermare le
-        coppie: a quel punto non conteranno più come vendite, acquisti, versamenti o prelievi.
+        Sotto l'affidabilità trovi perché due movimenti sono stati abbinati. Le crypto importate con le versioni
+        precedenti (vendita + acquisto) ricevono l'etichetta reimportando i file di Trade Republic e OKX; Scalable si
+        aggiorna alla prossima sincronizzazione.
       </p>
     </div>
   );

@@ -77,11 +77,17 @@ describe('import Trade Republic', () => {
     expect(pos('FTSE All-World USD (Acc)').quantity).toBeCloseTo(100.4);
     expect(pos('FTSE All-World USD (Acc)').cost).toBeCloseTo(704);
     expect(pos('FTSE All-World USD (Acc)').income).toBeCloseTo(3.7);
-    // BTC inviato ad altro conto: esce al prezzo dell'ultimo acquisto, costi a parte.
+    // BTC inviato ad altro conto: trasferimento interno, nessuna plusvalenza e nessun movimento di liquidità.
     expect(pos('BTC').quantity).toBe(0);
+    expect(pos('BTC').realized).toBe(0);
+    const sent = r.transactions.find((t) => t.type === 'trasf_uscita')!;
+    expect(sent).toMatchObject({ assetKey: 'crypto:BTC', quantity: 0.01, rev: 1 });
+    expect(r.transactions.some((t) => t.externalId === `${sent.externalId}:cash`)).toBe(false);
+    // Le versioni precedenti avevano vendita + prelievo speculare: il prelievo va eliminato.
+    expect(r.remove).toContain(`${sent.externalId}:cash`);
     // Saveback 3 + interessi 4 − 1,04 di ritenuta + dividendo 5 − 1,30.
     expect(p.summary.income).toBeCloseTo(3 + 2.96 + 3.7);
-    // Liquidità senza carte (il trasferimento del BTC è neutro: vendita +800, uscita −800):
+    // Liquidità senza carte (il trasferimento del BTC non la tocca):
     // 2000 + 10 − 701 + 3 − 3 + 2,96 − 801 − 0,30 + 3,70 − 0,96 − 100
     expect(p.cash[0].cash).toBeCloseTo(413.4);
   });

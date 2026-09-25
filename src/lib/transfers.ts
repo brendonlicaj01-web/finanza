@@ -1,4 +1,4 @@
-import type { AppData, Asset, Transaction } from './types';
+import { INFLOW_QTY, OUTFLOW_QTY, TRANSFER_TX, type AppData, type Asset, type Transaction } from './types';
 
 /**
  * Riconoscimento dei trasferimenti tra i propri conti (sola lettura).
@@ -25,6 +25,11 @@ export interface TransferPair {
   reasons: string[];
   /** Plus/minusvalenza che oggi l'app registra sulla "vendita" di chi invia. */
   recordedGain?: number;
+  /**
+   * Entrambe le metà hanno già l'etichetta "Trasferimento crypto interno": il calcolo sposta quantità e costo di
+   * carico da un conto all'altro, senza vendite né versamenti.
+   */
+  labeled?: boolean;
 }
 
 export interface TransferAnalysis {
@@ -71,21 +76,31 @@ function assign(candidates: (TransferPair & { score: number })[]): TransferPair[
   return out.sort((a, b) => b.out.date.localeCompare(a.out.date));
 }
 
-export function findTransfers(data: AppData, saleGains: Record<string, number> = {}): TransferAnalysis {
+const isTransfer = (t: Transaction) => TRANSFER_TX.includes(t.type);
+
+/**
+ * @param options.labeledOnly considera solo i movimenti con l'etichetta "Trasferimento crypto interno"
+ *   (è l'abbinamento usato dal calcolo del portafoglio per spostare il costo di carico).
+ */
+export function findTransfers(
+  data: AppData,
+  saleGains: Record<string, number> = {},
+  options: { labeledOnly?: boolean } = {},
+): TransferAnalysis {
   const assets = new Map(data.assets.map((a) => [a.id, a]));
   const byExternal = new Map<string, Transaction>();
   for (const t of data.transactions) if (t.externalId) byExternal.set(`${t.accountId}|${t.externalId}`, t);
 
   /** Movimento di liquidità speculare di un'operazione (es. `okx:f:123` → `okx:f:123:cash`). */
   const mirrorOf = (t: Transaction) => {
-    if (!t.externalId) return undefined;
+    if (!t.externalId || isTransfer(t)) return undefined;
     const m = byExternal.get(`${t.accountId}|${t.externalId}:cash`);
     const expected = t.type === 'acquisto' ? 'deposito' : 'prelievo';
     return m && m.type === expected && !AUTO_MIRROR.test(m.note ?? '') ? m : undefined;
   };
   const mirrorIds = new Set<string>();
   for (const t of data.transactions) {
-    if (t.type !== 'acquisto' && t.type !== 'vendita') continue;
+    if (!INFLOW_QTY.includes(t.type) && !OUTFLOW_QTY.includes(t.type)) continue;
     const m = mirrorOf(t);
     if (m) mirrorIds.add(m.id);
   }
@@ -95,26 +110,31 @@ export function findTransfers(data: AppData, saleGains: Record<string, number> =
     tx: Transaction;
     key: string;
     mirror?: Transaction;
-    /** La fonte lo indica come trasferimento (movimento speculare o descrizione). */
+    /** La fonte lo indica come trasferimento (etichetta, movimento speculare o descrizione). */
     hinted: boolean;
+    /** Ha l'etichetta "Trasferimento crypto interno". */
+    labeled: boolean;
     /** Rettifica automatica al saldo: data e prezzo sono stime. */
     estimated: boolean;
   }
-  const legs = (type: 'acquisto' | 'vendita'): Leg[] =>
+  const legs = (types: Transaction['type'][]): Leg[] =>
     data.transactions
-      .filter((t) => t.type === type && t.assetId && (t.quantity ?? 0) > 0)
+      .filter((t) => types.includes(t.type) && t.assetId && (t.quantity ?? 0) > 0)
+      .filter((t) => !options.labeledOnly || isTransfer(t))
       .map((tx) => {
         const mirror = mirrorOf(tx);
+        const labeled = isTransfer(tx);
         return {
           tx,
           key: assetKey(assets.get(tx.assetId!), tx.assetId!),
           mirror,
-          hinted: !!mirror || TRANSFER_NOTE.test(tx.note ?? ''),
+          hinted: labeled || !!mirror || TRANSFER_NOTE.test(tx.note ?? ''),
+          labeled,
           estimated: isAdjustment(tx),
         };
       });
-  const outs = legs('vendita');
-  const ins = legs('acquisto');
+  const outs = legs(OUTFLOW_QTY);
+  const ins = legs(INFLOW_QTY);
   const insByKey = new Map<string, Leg[]>();
   for (const l of ins) insByKey.set(l.key, [...(insByKey.get(l.key) ?? []), l]);
 
@@ -137,7 +157,12 @@ export function findTransfers(data: AppData, saleGains: Record<string, number> =
 
       const reasons: string[] = [];
       let score = 0;
-      if (o.hinted && i.hinted) {
+      const labeled = o.labeled && i.labeled;
+      if (labeled) {
+        // Con l'etichetta su entrambe le metà la coppia vince su abbinamenti con compravendite.
+        score += 5;
+        reasons.push('entrambe etichettate come trasferimento interno');
+      } else if (o.hinted && i.hinted) {
         score += 4;
         reasons.push('entrambe indicate come trasferimento');
       } else {
@@ -180,12 +205,17 @@ export function findTransfers(data: AppData, saleGains: Record<string, number> =
         difference: Math.max(0, Math.round((qOut - qIn) * 1e8) / 1e8),
         confidence: confidence(score, 7, 5),
         reasons,
-        recordedGain: saleGains[o.tx.id],
+        recordedGain: o.tx.type === 'vendita' ? saleGains[o.tx.id] : undefined,
+        labeled,
         score,
       });
     }
   }
   const securityPairs = assign(securities);
+  if (options.labeledOnly) {
+    const paired = new Set(securityPairs.flatMap((p) => [p.out.id, p.in.id]));
+    return { pairs: securityPairs, unmatched: [...outs, ...ins].filter((l) => !paired.has(l.tx.id)).map((l) => l.tx) };
+  }
 
   // ---------- Liquidità ----------
   const cashLeg = (t: Transaction, type: 'deposito' | 'prelievo') =>
@@ -236,4 +266,12 @@ export function findTransfers(data: AppData, saleGains: Record<string, number> =
     .sort((a, b) => b.date.localeCompare(a.date));
 
   return { pairs: [...securityPairs, ...cashPairs], unmatched };
+}
+
+/**
+ * Coppie di trasferimenti con l'etichetta dedicata, per il calcolo: entrata → uscita da cui arriva il costo di
+ * carico. Un'entrata senza uscita abbinata prende come costo il valore del giorno.
+ */
+export function transferLinks(data: AppData): Map<string, string> {
+  return new Map(findTransfers(data, {}, { labeledOnly: true }).pairs.map((p) => [p.in.id, p.out.id]));
 }

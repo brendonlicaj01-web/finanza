@@ -11,9 +11,12 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
   peso in portafoglio, P&L latente/realizzato e proventi, aggregati per strumento o per singolo conto.
 - **Transazioni**: acquisti, vendite, dividendi/cedole, interessi, depositi, prelievi, commissioni/imposte, con
   filtri e controllo che non si venda più di quanto posseduto.
-- **Trasferimenti**: riconosce i movimenti tra i tuoi conti (es. BTC da Trade Republic a OKX, bonifico dalla banca
-  al broker) che oggi risultano come vendita + acquisto o prelievo + versamento, con la plusvalenza "finta" che ne
-  deriva e gli invii senza controparte. Per ora è solo un'analisi: non modifica i dati.
+- **Trasferimenti**: le crypto spostate tra i tuoi conti o wallet hanno l'etichetta **Trasferimento crypto interno**
+  (uscita/entrata), non "acquisto" o "vendita": quantità e costo di carico passano da un conto all'altro, senza
+  plusvalenze e senza contare come versamenti o prelievi. Le due metà si abbinano da sole (stessa moneta, quantità
+  simile, date vicine); un'entrata senza controparte prende come costo il valore del giorno. La pagina Trasferimenti
+  mostra le coppie, quelle ancora registrate come vendita + acquisto (titoli, import precedenti), i bonifici tra
+  conti e gli invii senza controparte.
 - **Strumenti**: azioni, ETF, obbligazioni, fondi, crypto, materie prime; aggiornamento rapido dei prezzi e aliquota
   fiscale per strumento (26% o 12,5% per titoli di Stato).
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.

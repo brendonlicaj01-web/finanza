@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { quantityAt, sortTransactions } from '../lib/portfolio';
-import { ASSET_TX, TRADE_TX, TX_TYPES, multiplierOf, type Transaction, type TxType } from '../lib/types';
+import { ASSET_TX, OUTFLOW_QTY, TRADE_TX, TRANSFER_TX, TX_TYPES, multiplierOf, type Transaction, type TxType } from '../lib/types';
 import { date as fmtDate, money, price, parseNumber, qty, today } from '../lib/format';
 import { uid } from '../lib/id';
 import { Card, Empty, Field, Icon, Modal, PageHead } from '../components/ui';
@@ -13,6 +13,7 @@ const OUTFLOW: TxType[] = ['acquisto', 'prelievo', 'commissione'];
 function txTotal(tx: Transaction, multiplier = 1): number {
   if (TRADE_TX.includes(tx.type)) {
     const gross = (tx.quantity ?? 0) * (tx.price ?? 0) * multiplier;
+    if (TRANSFER_TX.includes(tx.type)) return gross; // valore spostato, non un incasso o una spesa
     return tx.type === 'acquisto' ? gross + tx.fees : gross - tx.fees;
   }
   if (tx.type === 'dividendo' || tx.type === 'interessi') return (tx.amount ?? 0) - tx.fees;
@@ -153,6 +154,7 @@ export function Transactions() {
                   const asset = t.assetId ? assets.get(t.assetId) : undefined;
                   const total = txTotal(t, multiplierOf(asset));
                   const out = OUTFLOW.includes(t.type);
+                  const moved = TRANSFER_TX.includes(t.type);
                   return (
                     <tr key={t.id} className="clickable" onClick={() => setEditing(t)}>
                       <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.date)}</td>
@@ -173,10 +175,16 @@ export function Transactions() {
                         </div>
                       </td>
                       <td className="hide-mobile">{accounts.get(t.accountId)?.name}</td>
-                      <td className={`num ${out ? '' : 'pos'}`}>
-                        {out ? '−' : '+'}
-                        {money(Math.abs(total))}
-                      </td>
+                      {moved ? (
+                        <td className="num muted" title="Valore spostato tra i tuoi conti: non è un incasso né una spesa">
+                          ⇄ {money(Math.abs(total))}
+                        </td>
+                      ) : (
+                        <td className={`num ${out ? '' : 'pos'}`}>
+                          {out ? '−' : '+'}
+                          {money(Math.abs(total))}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -238,8 +246,10 @@ function TransactionForm({
   const fees = parseNumber(f.fees || '0');
   const mult = multiplierOf(data.assets.find((a) => a.id === f.assetId));
   const gross = isTrade && q > 0 && p >= 0 ? q * p * mult : NaN;
+  const isTransfer = TRANSFER_TX.includes(f.type);
+  const leaving = OUTFLOW_QTY.includes(f.type);
   const held =
-    f.type === 'vendita' && f.assetId
+    leaving && f.assetId
       ? quantityAt(data.transactions, f.accountId, f.assetId, f.date, initial?.id)
       : 0;
 
@@ -266,8 +276,10 @@ function TransactionForm({
     if (isTrade) {
       if (!(q > 0)) return setError('La quantità deve essere maggiore di zero.');
       if (!(p >= 0) || Number.isNaN(p)) return setError('Prezzo non valido.');
-      if (f.type === 'vendita' && q > held + 1e-9)
-        return setError(`Non puoi vendere più di quanto possiedi alla data indicata (${qty(held)}).`);
+      if (leaving && q > held + 1e-9)
+        return setError(
+          `Non puoi ${f.type === 'vendita' ? 'vendere' : 'trasferire'} più di quanto possiedi alla data indicata (${qty(held)}).`,
+        );
       tx.quantity = q;
       tx.price = p;
     } else {
@@ -282,7 +294,7 @@ function TransactionForm({
     <Modal title={initial ? 'Modifica transazione' : 'Nuova transazione'} onClose={onClose}>
       <form onSubmit={submit} noValidate>
         <div className="form-grid">
-          <Field label="Tipo">
+          <Field label="Tipo" className="full">
             <select className="input" value={f.type} onChange={set('type')}>
               {TX_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -294,7 +306,7 @@ function TransactionForm({
           <Field label="Data">
             <input className="input" type="date" value={f.date} onChange={set('date')} required />
           </Field>
-          <Field label="Conto" className={needsAsset ? '' : 'full'}>
+          <Field label="Conto">
             <select className="input" value={f.accountId} onChange={set('accountId')}>
               {data.accounts.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -307,7 +319,7 @@ function TransactionForm({
             <Field label="Strumento">
               <select className="input" value={f.assetId} onChange={set('assetId')}>
                 {f.type === 'dividendo' && <option value="">— Nessuno —</option>}
-                {data.assets.map((a) => (
+                {data.assets.filter((a) => !isTransfer || a.type === 'crypto' || a.id === f.assetId).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.symbol} · {a.name}
                   </option>
@@ -317,10 +329,19 @@ function TransactionForm({
           )}
           {isTrade ? (
             <>
-              <Field label="Quantità" hint={f.type === 'vendita' ? `Posseduti alla data: ${qty(held)}` : undefined}>
+              <Field label="Quantità" hint={leaving ? `Posseduti alla data: ${qty(held)}` : undefined}>
                 <input className="input" inputMode="decimal" value={f.quantity} onChange={set('quantity')} placeholder="0" />
               </Field>
-              <Field label="Prezzo unitario" hint={Number.isFinite(gross) ? `Controvalore ${money(gross)}` : undefined}>
+              <Field
+                label={isTransfer ? 'Valore unitario del giorno' : 'Prezzo unitario'}
+                hint={
+                  isTransfer
+                    ? "Solo informativo: il costo di carico arriva dal conto di provenienza. Se l'altra metà non è tra i tuoi conti, l'entrata usa questo valore."
+                    : Number.isFinite(gross)
+                      ? `Controvalore ${money(gross)}`
+                      : undefined
+                }
+              >
                 <input className="input" inputMode="decimal" value={f.price} onChange={set('price')} placeholder="0,00" />
               </Field>
             </>

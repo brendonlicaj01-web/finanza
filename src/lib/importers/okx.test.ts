@@ -60,6 +60,17 @@ describe('import OKX', () => {
     expect(r.cash).toBe(0.04);
   });
 
+  it('le crypto depositate da altri conti o wallet sono trasferimenti interni, non acquisti', () => {
+    const r = okx.parse([...trading, ...funding], opts);
+    const btc = r.transactions.find((t) => t.externalId === 'okx:f:200034822124')!;
+    expect(btc).toMatchObject({ type: 'trasf_entrata', assetKey: 'crypto:BTC', quantity: 0.009016, rev: 1 });
+    expect(btc.price! * btc.quantity!).toBeCloseTo(502.405, 2);
+    expect(r.transactions.some((t) => t.externalId === 'okx:f:200034822124:cash')).toBe(false);
+    expect(r.remove).toContain('okx:f:200034822124:cash');
+    // I depositi in euro restano versamenti.
+    expect(r.transactions.find((t) => t.externalId === 'okx:f:200034292742')).toMatchObject({ type: 'deposito', amount: 500 });
+  });
+
   it('i rendimenti sono proventi, e le monete entrano a quel valore', () => {
     const r = okx.parse([...trading, ...funding], opts);
     const yieldTx = r.transactions.find((t) => t.externalId === 'okx:f:200047116058')!;
