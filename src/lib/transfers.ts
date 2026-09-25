@@ -1,11 +1,22 @@
-import { INFLOW_QTY, OUTFLOW_QTY, TRANSFER_TX, type AppData, type Asset, type Transaction } from './types';
+import {
+  INFLOW_QTY,
+  OUTFLOW_QTY,
+  TRANSFER_TX,
+  type AppData,
+  type Asset,
+  type Transaction,
+  type TransferLink,
+  type TxRef,
+} from './types';
+import { uid } from './id';
 
 /**
- * Riconoscimento dei trasferimenti tra i propri conti (sola lettura).
+ * Riconoscimento dei trasferimenti tra i propri conti.
  *
- * Oggi ogni conto vede solo la sua metà del movimento: chi invia registra una vendita (o un prelievo), chi riceve
- * un acquisto (o un deposito). Qui si cercano le coppie uscita/entrata che con buona probabilità sono lo stesso
- * trasferimento, senza modificare nulla.
+ * Ogni conto vede solo la sua metà del movimento: chi invia registra un'uscita (vendita, prelievo o trasferimento
+ * in uscita), chi riceve un'entrata. Qui si cercano le coppie uscita/entrata che con buona probabilità sono lo
+ * stesso trasferimento. Le decisioni dell'utente (`AppData.transferLinks`) hanno la precedenza: una coppia
+ * confermata vale sempre, una scartata non viene più proposta.
  */
 
 export type Confidence = 'alta' | 'media' | 'bassa';
@@ -30,10 +41,15 @@ export interface TransferPair {
    * carico da un conto all'altro, senza vendite né versamenti.
    */
   labeled?: boolean;
+  /** Decisione dell'utente su questa coppia, se c'è. */
+  status?: TransferLink['status'];
+  linkId?: string;
 }
 
 export interface TransferAnalysis {
+  /** Coppie confermate e proposte (quelle scartate sono in `rejected`). */
   pairs: TransferPair[];
+  rejected: TransferPair[];
   /** Movimenti che le fonti indicano come trasferimenti ma senza controparte tra i conti dell'app. */
   unmatched: Transaction[];
 }
@@ -80,6 +96,18 @@ const isTransfer = (t: Transaction) => TRANSFER_TX.includes(t.type);
 /** Commissione di rete pagata in crypto dai wallet: esce dal conto, ma non è la metà di un trasferimento. */
 const isNetworkFee = (t: Transaction) => !!t.externalId?.endsWith(':gas');
 
+/** Riferimento stabile di una transazione (vedi TxRef). */
+export const refOf = (t: Transaction): TxRef => ({ id: t.id, accountId: t.accountId, externalId: t.externalId });
+const refKey = (r: TxRef) => `${r.accountId}|${r.externalId ? `x:${r.externalId}` : `id:${r.id}`}`;
+const pairKey = (o: TxRef, i: TxRef) => `${refKey(o)}>${refKey(i)}`;
+
+/** Nuova decisione su una coppia. */
+export function decide(out: Transaction, into: Transaction, status: TransferLink['status']): TransferLink {
+  return { id: uid(), out: refOf(out), in: refOf(into), status, decidedAt: new Date().toISOString() };
+}
+
+const isCashType = (t: Transaction) => t.type === 'deposito' || t.type === 'prelievo';
+
 /**
  * @param options.labeledOnly considera solo i movimenti con l'etichetta "Trasferimento crypto interno"
  *   (è l'abbinamento usato dal calcolo del portafoglio per spostare il costo di carico).
@@ -92,6 +120,20 @@ export function findTransfers(
   const assets = new Map(data.assets.map((a) => [a.id, a]));
   const byExternal = new Map<string, Transaction>();
   for (const t of data.transactions) if (t.externalId) byExternal.set(`${t.accountId}|${t.externalId}`, t);
+  const byId = new Map(data.transactions.map((t) => [t.id, t]));
+  const resolve = (r: TxRef) => (r.externalId ? byExternal.get(`${r.accountId}|${r.externalId}`) : undefined) ?? byId.get(r.id);
+
+  // Decisioni dell'utente: le coppie confermate sono fisse, quelle scartate non vengono riproposte.
+  const links = data.transferLinks ?? [];
+  const rejectedKeys = new Set(links.filter((l) => l.status === 'rifiutato').map((l) => pairKey(l.out, l.in)));
+  const decided: { link: TransferLink; out: Transaction; in: Transaction }[] = [];
+  for (const link of links) {
+    const o = resolve(link.out);
+    const i = resolve(link.in);
+    if (o && i) decided.push({ link, out: o, in: i });
+  }
+  const confirmedIds = new Set(decided.filter((d) => d.link.status === 'confermato').flatMap((d) => [d.out.id, d.in.id]));
+  const isRejected = (o: Transaction, i: Transaction) => rejectedKeys.has(pairKey(refOf(o), refOf(i)));
 
   /** Movimento di liquidità speculare di un'operazione (es. `okx:f:123` → `okx:f:123:cash`). */
   const mirrorOf = (t: Transaction) => {
@@ -123,6 +165,7 @@ export function findTransfers(
     data.transactions
       .filter((t) => types.includes(t.type) && t.assetId && (t.quantity ?? 0) > 0 && !isNetworkFee(t))
       .filter((t) => !options.labeledOnly || isTransfer(t))
+      .filter((t) => !confirmedIds.has(t.id))
       .map((tx) => {
         const mirror = mirrorOf(tx);
         const labeled = isTransfer(tx);
@@ -143,7 +186,7 @@ export function findTransfers(
   const securities: (TransferPair & { score: number })[] = [];
   for (const o of outs) {
     for (const i of insByKey.get(o.key) ?? []) {
-      if (i.tx.accountId === o.tx.accountId) continue;
+      if (i.tx.accountId === o.tx.accountId || isRejected(o.tx, i.tx)) continue;
       // Almeno una delle due metà deve avere l'aspetto di un trasferimento: una vendita e un acquisto
       // qualsiasi dello stesso titolo su due conti sono, di norma, operazioni vere.
       if (!o.hinted && !i.hinted && !o.estimated && !i.estimated) continue;
@@ -213,21 +256,51 @@ export function findTransfers(
       });
     }
   }
-  const securityPairs = assign(securities);
+  /** Coppia decisa dall'utente, descritta come le altre. */
+  const describe = ({ link, out: o, in: i }: (typeof decided)[number]): TransferPair => {
+    const cashPair = isCashType(o) && isCashType(i);
+    const qOut = cashPair ? (o.amount ?? 0) : (o.quantity ?? 0);
+    const qIn = cashPair ? (i.amount ?? 0) : (i.quantity ?? 0);
+    return {
+      kind: cashPair ? 'liquidita' : 'titoli',
+      out: o,
+      in: i,
+      outCash: cashPair ? undefined : mirrorOf(o),
+      inCash: cashPair ? undefined : mirrorOf(i),
+      days: daysBetween(o.date, i.date),
+      difference: Math.max(0, Math.round((qOut - qIn) * (cashPair ? 100 : 1e8)) / (cashPair ? 100 : 1e8)),
+      confidence: 'alta',
+      reasons: [link.status === 'confermato' ? 'confermato da te' : 'scartato da te'],
+      recordedGain: o.type === 'vendita' ? saleGains[o.id] : undefined,
+      labeled: isTransfer(o) && isTransfer(i),
+      status: link.status,
+      linkId: link.id,
+    };
+  };
+  const confirmed = decided.filter((d) => d.link.status === 'confermato').map(describe);
+  const rejected = decided.filter((d) => d.link.status === 'rifiutato').map(describe);
+
+  const securityPairs = [...confirmed.filter((p) => p.kind === 'titoli'), ...assign(securities)];
   if (options.labeledOnly) {
-    const paired = new Set(securityPairs.flatMap((p) => [p.out.id, p.in.id]));
-    return { pairs: securityPairs, unmatched: [...outs, ...ins].filter((l) => !paired.has(l.tx.id)).map((l) => l.tx) };
+    const pairs = securityPairs.filter((p) => p.labeled);
+    const paired = new Set(pairs.flatMap((p) => [p.out.id, p.in.id]));
+    return { pairs, rejected, unmatched: [...outs, ...ins].filter((l) => !paired.has(l.tx.id)).map((l) => l.tx) };
   }
 
   // ---------- Liquidità ----------
   const cashLeg = (t: Transaction, type: 'deposito' | 'prelievo') =>
-    t.type === type && (t.amount ?? 0) > 0 && !mirrorIds.has(t.id) && !isCashAdjustment(t) && !AUTO_MIRROR.test(t.note ?? '');
+    t.type === type &&
+    (t.amount ?? 0) > 0 &&
+    !mirrorIds.has(t.id) &&
+    !isCashAdjustment(t) &&
+    !AUTO_MIRROR.test(t.note ?? '') &&
+    !confirmedIds.has(t.id);
   const cashOuts = data.transactions.filter((t) => cashLeg(t, 'prelievo'));
   const cashIns = data.transactions.filter((t) => cashLeg(t, 'deposito'));
   const cash: (TransferPair & { score: number })[] = [];
   for (const o of cashOuts) {
     for (const i of cashIns) {
-      if (i.accountId === o.accountId) continue;
+      if (i.accountId === o.accountId || isRejected(o, i)) continue;
       const aOut = o.amount!;
       const aIn = i.amount!;
       const diff = Math.round((aOut - aIn) * 100) / 100;
@@ -258,7 +331,7 @@ export function findTransfers(
       cash.push({ kind: 'liquidita', out: o, in: i, days, difference: Math.max(0, diff), confidence: confidence(score, 6, 4), reasons, score });
     }
   }
-  const cashPairs = assign(cash);
+  const cashPairs = [...confirmed.filter((p) => p.kind === 'liquidita'), ...assign(cash)];
 
   // ---------- Metà senza controparte ----------
   const paired = new Set(securityPairs.flatMap((p) => [p.out.id, p.in.id]));
@@ -267,7 +340,7 @@ export function findTransfers(
     .map((l) => l.tx)
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  return { pairs: [...securityPairs, ...cashPairs], unmatched };
+  return { pairs: [...securityPairs, ...cashPairs], rejected, unmatched };
 }
 
 /**
@@ -276,4 +349,41 @@ export function findTransfers(
  */
 export function transferLinks(data: AppData): Map<string, string> {
   return new Map(findTransfers(data, {}, { labeledOnly: true }).pairs.map((p) => [p.in.id, p.out.id]));
+}
+
+/**
+ * Possibili altre metà di un movimento, per l'abbinamento a mano: movimenti di verso opposto dello stesso
+ * strumento (o di liquidità) in altri conti, non già confermati, dal più vicino nel tempo.
+ */
+export function counterparts(data: AppData, tx: Transaction, limit = 30): Transaction[] {
+  const assets = new Map(data.assets.map((a) => [a.id, a]));
+  const confirmed = new Set<string>();
+  const byExternal = new Map<string, Transaction>();
+  for (const t of data.transactions) if (t.externalId) byExternal.set(`${t.accountId}|${t.externalId}`, t);
+  const byId = new Map(data.transactions.map((t) => [t.id, t]));
+  for (const l of data.transferLinks ?? []) {
+    if (l.status !== 'confermato') continue;
+    for (const r of [l.out, l.in]) {
+      const t = (r.externalId ? byExternal.get(`${r.accountId}|${r.externalId}`) : undefined) ?? byId.get(r.id);
+      if (t) confirmed.add(t.id);
+    }
+  }
+  const out = OUTFLOW_QTY.includes(tx.type) || tx.type === 'prelievo';
+  let wanted: Transaction['type'][];
+  if (isCashType(tx)) wanted = [out ? 'deposito' : 'prelievo'];
+  else wanted = out ? INFLOW_QTY : OUTFLOW_QTY;
+  const key = tx.assetId ? assetKey(assets.get(tx.assetId), tx.assetId) : undefined;
+  return data.transactions
+    .filter(
+      (t) =>
+        t.accountId !== tx.accountId &&
+        wanted.includes(t.type) &&
+        !confirmed.has(t.id) &&
+        !isNetworkFee(t) &&
+        (isCashType(tx) || (t.assetId && assetKey(assets.get(t.assetId), t.assetId) === key)),
+    )
+    .map((t) => ({ t, gap: Math.abs(daysBetween(tx.date, t.date)) }))
+    .sort((a, b) => a.gap - b.gap)
+    .slice(0, limit)
+    .map(({ t }) => t);
 }

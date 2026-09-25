@@ -38,5 +38,6 @@ export function parseData(raw: string): AppData {
     transactions: obj.transactions,
     snapshots: Array.isArray(obj.snapshots) ? obj.snapshots : [],
     settings: { ...base.settings, ...(obj.settings ?? {}) },
+    transferLinks: Array.isArray(obj.transferLinks) ? obj.transferLinks : [],
   };
 }

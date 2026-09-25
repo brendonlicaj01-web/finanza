@@ -137,6 +137,27 @@ export interface Settings {
   autoSyncHours: number;
 }
 
+/**
+ * Riferimento stabile a una transazione: per quelle importate vale l'identificativo della fonte (sopravvive a
+ * sincronizzazioni e reimport), per quelle manuali l'id interno.
+ */
+export interface TxRef {
+  id: string;
+  accountId: string;
+  externalId?: string;
+}
+
+/** Decisione dell'utente su una coppia uscita/entrata tra due conti. */
+export interface TransferLink {
+  id: string;
+  out: TxRef;
+  in: TxRef;
+  /** Confermato: è un trasferimento tra conti propri. Rifiutato: non lo è, non riproporlo. */
+  status: 'confermato' | 'rifiutato';
+  /** Data della decisione (ISO). */
+  decidedAt: string;
+}
+
 export interface AppData {
   version: 1;
   accounts: Account[];
@@ -144,6 +165,8 @@ export interface AppData {
   transactions: Transaction[];
   snapshots: Snapshot[];
   settings: Settings;
+  /** Trasferimenti tra conti confermati o scartati dall'utente. */
+  transferLinks?: TransferLink[];
 }
 
 export const emptyData = (): AppData => ({

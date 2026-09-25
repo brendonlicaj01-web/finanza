@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
-import { findTransfers, type Confidence, type TransferPair } from '../lib/transfers';
+import { counterparts, decide, findTransfers, type Confidence, type TransferPair } from '../lib/transfers';
 import { date as fmtDate, money, qty } from '../lib/format';
-import { OUTFLOW_QTY } from '../lib/types';
+import { OUTFLOW_QTY, type Transaction } from '../lib/types';
 import { Card, Empty, PageHead, Tile } from '../components/ui';
 
 const CONF_LABEL: Record<Confidence, string> = { alta: 'Probabile', media: 'Possibile', bassa: 'Da verificare' };
 
 /**
- * Trasferimenti tra i propri conti riconosciuti nei dati. Le coppie con l'etichetta "Trasferimento crypto interno"
- * sono già calcolate come tali; le altre (vendita + acquisto, prelievo + versamento) sono solo segnalate.
+ * Trasferimenti tra i propri conti: coppie proposte, da confermare o scartare, e abbinamenti a mano.
+ * Le coppie con l'etichetta "Trasferimento crypto interno" spostano già il costo di carico; per le altre
+ * (vendita + acquisto, prelievo + versamento) la conferma per ora registra solo la decisione.
  */
 export function Transfers() {
-  const { data, result } = useStore();
+  const { data, result, dispatch } = useStore();
   const analysis = useMemo(() => findTransfers(data, result.saleGains), [data, result.saleGains]);
   const [showLow, setShowLow] = useState(false);
 
@@ -25,6 +26,29 @@ export function Transfers() {
 
   const labeled = securities.filter((p) => p.labeled);
   const pending = securities.filter((p) => !p.labeled);
+  const toReview = visible.filter((p) => !p.status).length;
+
+  const confirm = (p: TransferPair) => dispatch({ type: 'decideTransfer', link: decide(p.out, p.in, 'confermato') });
+  const reject = (p: TransferPair) => dispatch({ type: 'decideTransfer', link: decide(p.out, p.in, 'rifiutato') });
+  const undo = (p: TransferPair) => p.linkId && dispatch({ type: 'undoTransfer', id: p.linkId });
+  const actions = (p: TransferPair) =>
+    p.status === 'confermato' ? (
+      <div className="actions">
+        <span className="badge conf-alta">Confermato</span>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => undo(p)}>
+          Annulla
+        </button>
+      </div>
+    ) : (
+      <div className="actions">
+        <button type="button" className="btn btn-sm btn-primary" onClick={() => confirm(p)}>
+          Conferma
+        </button>
+        <button type="button" className="btn btn-sm" onClick={() => reject(p)}>
+          Non è un trasferimento
+        </button>
+      </div>
+    );
   const fakeGains = pending.reduce((s, p) => s + (p.recordedGain ?? 0), 0);
   const doubled = cash.reduce((s, p) => s + (p.out.amount ?? 0), 0);
 
@@ -39,18 +63,21 @@ export function Transfers() {
       </div>
     </>
   );
-  const badge = (p: TransferPair) => (
-    <>
-      <span className={`badge conf-${p.confidence}`}>{CONF_LABEL[p.confidence]}</span>
+  const badge = (p: TransferPair) =>
+    p.status ? (
       <div className="cell-sub">{p.reasons.join(', ')}</div>
-    </>
-  );
+    ) : (
+      <>
+        <span className={`badge conf-${p.confidence}`}>{CONF_LABEL[p.confidence]}</span>
+        <div className="cell-sub">{p.reasons.join(', ')}</div>
+      </>
+    );
 
   return (
     <div className="stack">
       <PageHead
         title="Trasferimenti tra conti"
-        sub="Movimenti che spostano crypto, titoli o liquidità tra i tuoi conti: non sono compravendite né versamenti."
+        sub="Movimenti che spostano crypto, titoli o liquidità tra i tuoi conti: non sono compravendite né versamenti. Conferma le coppie giuste, scarta quelle sbagliate e abbina a mano ciò che manca."
       />
 
       <div className="tiles">
@@ -69,6 +96,7 @@ export function Transfers() {
           }
         />
         <Tile label="Bonifici tra conti" value={cash.length} sub={`${money(doubled)} contati come versamenti e prelievi`} />
+        <Tile label="Da confermare" value={toReview} sub={toReview ? 'coppie proposte in attesa di una tua decisione' : 'tutto verificato'} />
       </div>
 
       <Card
@@ -88,6 +116,7 @@ export function Transfers() {
                   <th className="num hide-mobile">Valore</th>
                   <th className="num">Effetto oggi</th>
                   <th>Affidabilità</th>
+                  <th className="num">Decisione</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,6 +145,7 @@ export function Transfers() {
                         )}
                       </td>
                       <td>{badge(p)}</td>
+                      <td className="num">{actions(p)}</td>
                     </tr>
                   );
                 })}
@@ -137,6 +167,7 @@ export function Transfers() {
                   <th className="num">Importo</th>
                   <th className="hide-mobile">Descrizione</th>
                   <th>Affidabilità</th>
+                  <th className="num">Decisione</th>
                 </tr>
               </thead>
               <tbody>
@@ -149,6 +180,7 @@ export function Transfers() {
                     </td>
                     <td className="small hide-mobile">{p.out.note || p.in.note || '—'}</td>
                     <td>{badge(p)}</td>
+                    <td className="num">{actions(p)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -160,7 +192,7 @@ export function Transfers() {
       {analysis.unmatched.length > 0 && (
         <Card
           title="Senza controparte"
-          sub="La fonte li indica come trasferimenti, ma l'altra metà non è in nessun conto dell'app (es. wallet personale o conto non collegato)."
+          sub="La fonte li indica come trasferimenti, ma l'altra metà non è stata trovata. Se è in un altro conto dell'app, abbinala a mano; altrimenti (es. wallet non collegato) lasciala così."
         >
           <div className="table-wrap">
             <table>
@@ -170,6 +202,7 @@ export function Transfers() {
                   <th>Conto</th>
                   <th>Strumento</th>
                   <th className="num">Quantità</th>
+                  <th>Abbina a</th>
                 </tr>
               </thead>
               <tbody>
@@ -182,12 +215,44 @@ export function Transfers() {
                       <span className="badge">{OUTFLOW_QTY.includes(t.type) ? 'in uscita' : 'in entrata'}</span>
                     </td>
                     <td className="num">{qty(t.quantity ?? 0)}</td>
+                    <td>
+                      <ManualPair tx={t} accounts={accounts} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </Card>
+      )}
+
+      {analysis.rejected.length > 0 && (
+        <details className="card">
+          <summary>
+            <strong>Scartate</strong> <span className="muted">({analysis.rejected.length})</span>
+          </summary>
+          <div className="table-wrap" style={{ marginTop: 12 }}>
+            <table>
+              <tbody>
+                {analysis.rejected.map((p) => (
+                  <tr key={`${p.out.id}-${p.in.id}`}>
+                    <td>{route(p)}</td>
+                    <td>
+                      {p.kind === 'liquidita'
+                        ? money(p.out.amount ?? 0)
+                        : `${qty(p.out.quantity ?? 0)} ${assets.get(p.out.assetId ?? '')?.symbol ?? ''}`}
+                    </td>
+                    <td className="num">
+                      <button type="button" className="btn btn-sm" onClick={() => undo(p)}>
+                        Ripristina
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
 
       <label className="check">
@@ -201,10 +266,39 @@ export function Transfers() {
         </span>
       </label>
       <p className="small muted">
-        Sotto l'affidabilità trovi perché due movimenti sono stati abbinati. Le crypto importate con le versioni
-        precedenti (vendita + acquisto) ricevono l'etichetta reimportando i file di Trade Republic e OKX; Scalable si
-        aggiorna alla prossima sincronizzazione.
+        Le decisioni restano valide anche dopo sincronizzazioni e reimport. Per le coppie etichettate «Trasferimento
+        crypto interno» il costo di carico passa già da un conto all'altro (scartandole smette di farlo); per quelle
+        ancora registrate come vendita + acquisto o come bonifico, la conferma cambierà il calcolo nel prossimo passo.
       </p>
+    </div>
+  );
+}
+
+/** Scelta a mano dell'altra metà di un movimento rimasto senza controparte. */
+function ManualPair({ tx, accounts }: { tx: Transaction; accounts: Map<string, string> }) {
+  const { data, dispatch } = useStore();
+  const options = useMemo(() => counterparts(data, tx), [data, tx]);
+  const [chosen, setChosen] = useState('');
+  if (!options.length) return <span className="small muted">nessun movimento compatibile</span>;
+  const outgoing = OUTFLOW_QTY.includes(tx.type) || tx.type === 'prelievo';
+  const pair = () => {
+    const other = options.find((o) => o.id === chosen);
+    if (!other) return;
+    dispatch({ type: 'decideTransfer', link: outgoing ? decide(tx, other, 'confermato') : decide(other, tx, 'confermato') });
+  };
+  return (
+    <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+      <select className="input" style={{ minWidth: 0, maxWidth: 260 }} value={chosen} onChange={(e) => setChosen(e.target.value)} aria-label="Altra metà del trasferimento">
+        <option value="">Scegli…</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {fmtDate(o.date)} · {accounts.get(o.accountId)} · {o.quantity !== undefined ? qty(o.quantity) : money(o.amount ?? 0)}
+          </option>
+        ))}
+      </select>
+      <button type="button" className="btn btn-sm" disabled={!chosen} onClick={pair}>
+        Abbina
+      </button>
     </div>
   );
 }

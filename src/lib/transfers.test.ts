@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { findTransfers } from './transfers';
+import { counterparts, decide, findTransfers } from './transfers';
+import { reducer } from '../store';
 import { computePortfolio } from './portfolio';
 import { emptyData, type AppData, type Transaction } from './types';
 
@@ -157,5 +158,73 @@ describe('etichetta "Trasferimento crypto interno"', () => {
     expect(p.summary.realized).toBe(0);
     expect(p.positions.find((x) => x.accountId === 'okx')!.cost).toBeCloseTo(0.0499 * 60000);
     expect(findTransfers(d).unmatched.map((t) => t.id)).toEqual(['in', 'out']);
+  });
+});
+
+describe('conferma e scarto delle coppie (passo 2)', () => {
+  const setup = () => {
+    const d = base();
+    d.transactions = [
+      tx({ id: 'dep', accountId: 'tr', date: '2025-01-01', type: 'deposito', amount: 2000 }),
+      tx({ id: 'buy', accountId: 'tr', assetId: 'btc-tr', date: '2025-01-02', type: 'acquisto', quantity: 0.05, price: 40000, externalId: 'tr:buy' }),
+      tx({ id: 'out', accountId: 'tr', assetId: 'btc-tr', date: '2025-06-10', type: 'trasf_uscita', quantity: 0.05, price: 60000, externalId: 'tr:out' }),
+      tx({ id: 'in', accountId: 'okx', assetId: 'btc-okx', date: '2025-06-11', type: 'trasf_entrata', quantity: 0.0499, price: 60000, externalId: 'okx:in' }),
+      // Arrivo molto più tardi (30 giorni): nessuna regola automatica lo abbina.
+      tx({ id: 'late', accountId: 'kr', assetId: 'btc-okx', date: '2025-07-10', type: 'trasf_entrata', quantity: 0.0499, price: 55000, externalId: 'kr:in' }),
+    ];
+    return d;
+  };
+  const byId = (d: AppData, id: string) => d.transactions.find((t) => t.id === id)!;
+
+  it('una coppia scartata non viene più proposta né usata nel calcolo', () => {
+    let d = setup();
+    expect(findTransfers(d).pairs.map((p) => [p.out.id, p.in.id])).toEqual([['out', 'in']]);
+    d = reducer(d, { type: 'decideTransfer', link: decide(byId(d, 'out'), byId(d, 'in'), 'rifiutato') });
+    const a = findTransfers(d);
+    expect(a.pairs).toEqual([]);
+    expect(a.rejected.map((p) => [p.out.id, p.in.id, p.status])).toEqual([['out', 'in', 'rifiutato']]);
+    // Senza abbinamento l'entrata su OKX prende il valore del giorno, non il costo di Trade Republic.
+    const okx = computePortfolio(d).positions.find((x) => x.accountId === 'okx')!;
+    expect(okx.cost).toBeCloseTo(0.0499 * 60000);
+  });
+
+  it('abbinamento a mano oltre le regole automatiche: il costo segue le monete', () => {
+    let d = setup();
+    const out = byId(d, 'out');
+    expect(counterparts(d, out).map((t) => t.id)).toEqual(['in', 'late']);
+    d = reducer(d, { type: 'decideTransfer', link: decide(out, byId(d, 'in'), 'rifiutato') });
+    d = reducer(d, { type: 'decideTransfer', link: decide(out, byId(d, 'late'), 'confermato') });
+    const a = findTransfers(d);
+    expect(a.pairs.map((p) => [p.out.id, p.in.id, p.status, p.confidence])).toEqual([['out', 'late', 'confermato', 'alta']]);
+    expect(a.unmatched.map((t) => t.id)).toEqual(['in']);
+    const kr = computePortfolio(d).positions.find((x) => x.accountId === 'kr')!;
+    expect(kr.cost).toBeCloseTo(2000);
+    // Una metà confermata non può esserlo in due coppie: la nuova conferma sostituisce la vecchia.
+    d = reducer(d, { type: 'decideTransfer', link: decide(out, byId(d, 'in'), 'confermato') });
+    expect((d.transferLinks ?? []).filter((l) => l.status === 'confermato')).toHaveLength(1);
+    expect(findTransfers(d).pairs.map((p) => p.in.id)).toEqual(['in']);
+  });
+
+  it('la decisione sopravvive a sincronizzazioni e reimport (identificativo della fonte)', () => {
+    let d = setup();
+    d = reducer(d, { type: 'decideTransfer', link: decide(byId(d, 'out'), byId(d, 'late'), 'confermato') });
+    // Reimport: la transazione viene ricreata con un id interno diverso ma lo stesso identificativo della fonte.
+    d = { ...d, transactions: d.transactions.map((t) => (t.id === 'late' ? { ...t, id: 'late-2', price: 56000 } : t)) };
+    expect(findTransfers(d).pairs.map((p) => [p.out.id, p.in.id])).toEqual([['out', 'late-2']]);
+    // Eliminando il conto spariscono anche le decisioni che lo riguardano.
+    d = reducer(d, { type: 'deleteAccount', id: 'kr' });
+    expect(d.transferLinks).toEqual([]);
+  });
+
+  it('funziona anche per i bonifici tra conti', () => {
+    let d = base();
+    d.transactions = [
+      tx({ id: 'p', accountId: 'bank', date: '2025-03-01', type: 'prelievo', amount: 500 }),
+      tx({ id: 'v', accountId: 'sc', date: '2025-03-20', type: 'deposito', amount: 500 }),
+    ];
+    expect(findTransfers(d).pairs).toEqual([]);
+    expect(counterparts(d, d.transactions[0]).map((t) => t.id)).toEqual(['v']);
+    d = reducer(d, { type: 'decideTransfer', link: decide(d.transactions[0], d.transactions[1], 'confermato') });
+    expect(findTransfers(d).pairs).toMatchObject([{ kind: 'liquidita', status: 'confermato', days: 19 }]);
   });
 });

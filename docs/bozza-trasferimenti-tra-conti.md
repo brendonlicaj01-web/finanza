@@ -63,7 +63,14 @@ Conflitti:
    controparte usa il valore del giorno. I dati importati prima si convertono reimportando i file (TR, OKX) o alla
    prossima sincronizzazione (Scalable): la transazione si aggiorna per `rev` e il movimento `:cash` si elimina
    (`SyncResult.remove`).
-2. **Abbinamento e conferma.** L'utente conferma una coppia; l'abbinamento resta valido anche dopo le sync.
+2. ✅ **Abbinamento e conferma.** Nella pagina Trasferimenti ogni coppia proposta si conferma o si scarta
+   ("Non è un trasferimento"); i movimenti senza controparte si abbinano a mano scegliendo l'altra metà
+   (`counterparts`: verso opposto, stesso strumento o liquidità, altro conto, dal più vicino nel tempo).
+   Le decisioni sono in `AppData.transferLinks` e agganciano le transazioni per identificativo della fonte
+   (`TxRef`), quindi valgono anche dopo sincronizzazioni e reimport; sono incluse nei backup e vengono tolte
+   eliminando un conto. Una coppia confermata vale sempre (e le sue metà non vengono proposte altrove), una
+   scartata non viene più proposta (si può ripristinare). Per le coppie etichettate "Trasferimento crypto
+   interno" la decisione cambia già il calcolo; per vendita + acquisto e bonifici l'effetto arriva al passo 3.
 3. **Effetto sul calcolo.** Una coppia confermata non è più né vendita né acquisto: il costo medio passa dal conto
    che invia a quello che riceve e la differenza di quantità diventa una commissione.
 4. **Liquidità.** Anche i bonifici tra conti propri, abbinati, non contano più come versamento o prelievo nel report.

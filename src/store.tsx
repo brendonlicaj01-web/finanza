@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react';
-import type { Account, AppData, Asset, Settings, Transaction } from './lib/types';
+import type { Account, AppData, Asset, Settings, Transaction, TransferLink } from './lib/types';
 import { emptyData } from './lib/types';
 import { loadData, saveData } from './lib/storage';
 import { computePortfolio, type PortfolioResult } from './lib/portfolio';
@@ -15,6 +15,9 @@ export type Action =
   | { type: 'setPrices'; prices: Record<string, number> }
   | { type: 'upsertTransaction'; tx: Transaction }
   | { type: 'deleteTransaction'; id: string }
+  /** Conferma o scarta una coppia di trasferimento (sostituisce decisioni precedenti sulle stesse metà). */
+  | { type: 'decideTransfer'; link: TransferLink }
+  | { type: 'undoTransfer'; id: string }
   | { type: 'updateSettings'; settings: Partial<Settings> }
   | { type: 'replace'; data: AppData }
   | { type: 'applySync'; connection: { id: string; label: string }; result: SyncResult; today: string }
@@ -36,7 +39,7 @@ function upsert<T extends { id: string }>(list: T[], item: T): T[] {
   return copy;
 }
 
-function reducer(state: AppData, action: Action): AppData {
+export function reducer(state: AppData, action: Action): AppData {
   switch (action.type) {
     case 'upsertAccount':
       return { ...state, accounts: upsert(state.accounts, action.account) };
@@ -45,7 +48,22 @@ function reducer(state: AppData, action: Action): AppData {
         ...state,
         accounts: state.accounts.filter((a) => a.id !== action.id),
         transactions: state.transactions.filter((t) => t.accountId !== action.id),
+        transferLinks: (state.transferLinks ?? []).filter((l) => l.out.accountId !== action.id && l.in.accountId !== action.id),
       };
+    case 'decideTransfer': {
+      const same = (a: TransferLink['out'], b: TransferLink['out']) =>
+        a.accountId === b.accountId && (a.externalId && b.externalId ? a.externalId === b.externalId : a.id === b.id);
+      const l = action.link;
+      const others = (state.transferLinks ?? []).filter((x) => {
+        const samePair = same(x.out, l.out) && same(x.in, l.in);
+        // Una metà confermata in una coppia non può esserlo anche in un'altra.
+        const clash = l.status === 'confermato' && x.status === 'confermato' && (same(x.out, l.out) || same(x.in, l.in));
+        return !samePair && !clash;
+      });
+      return { ...state, transferLinks: [...others, l] };
+    }
+    case 'undoTransfer':
+      return { ...state, transferLinks: (state.transferLinks ?? []).filter((l) => l.id !== action.id) };
     case 'upsertAsset':
       return { ...state, assets: upsert(state.assets, action.asset) };
     case 'deleteAsset':
