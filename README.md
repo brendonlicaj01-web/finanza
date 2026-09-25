@@ -21,6 +21,9 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
   vendita + acquisto diventa un trasferimento anche nei conti: niente plusvalenza, costo di carico spostato, e i
   prelievi/versamenti automatici che l'accompagnavano non contano più. Un bonifico tra conti confermato sposta la
   liquidità ma non è un versamento né un prelievo; il suo costo è una commissione.
+- **Strumenti doppi**: la stessa crypto registrata con nomi diversi (es. «Bitcoin» di Scalable, «BTC» degli exchange)
+  viene riconosciuta come una sola nei trasferimenti e nelle sincronizzazioni; in Strumenti un riquadro propone di
+  unire i doppioni (anche a mano, dalla scheda dello strumento).
 - **Strumenti**: azioni, ETF, obbligazioni, fondi, crypto, materie prime; aggiornamento rapido dei prezzi e aliquota
   fiscale per strumento (26% o 12,5% per titoli di Stato).
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.

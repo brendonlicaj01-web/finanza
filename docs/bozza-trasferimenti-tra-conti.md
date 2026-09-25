@@ -80,4 +80,10 @@ Conflitti:
 4. ✅ **Liquidità.** Un bonifico tra conti propri confermato (`TransferPlan.giroconti`) sposta la liquidità ma non
    conta come versamento né prelievo (report annuale, capitale versato, grafico); la parte non arrivata (costo del
    bonifico) è una commissione. I bonifici solo proposti non cambiano nulla.
-5. **Unificazione degli strumenti.** Rendere uguale BTC di Scalable a BTC di TR/OKX.
+5. ✅ **Unificazione degli strumenti** (`src/lib/assets.ts`). Ticker canonico delle crypto dall'ISIN crypto
+   (XF000BTC0017 → BTC), dal nome esteso (Bitcoin → BTC) o dal simbolo: lo usano l'abbinamento dei trasferimenti
+   (anche prima di unire), il riconoscimento degli strumenti nelle sincronizzazioni/import (mergeSync) e
+   Scalable, che ora registra le crypto con il ticker. In Strumenti, il riquadro "Strumenti doppi" propone di unire
+   la stessa crypto o lo stesso ISIN registrati più volte (si tiene il simbolo-ticker; lo strumento principale prende
+   ISIN e prezzo più recente, le transazioni passano a lui); nella scheda di uno strumento si può unire a mano
+   qualunque altro strumento. Token diversi (es. WBTC) restano distinti.

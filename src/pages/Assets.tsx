@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import { ASSET_TYPES, type Asset, type AssetType } from '../lib/types';
 import { date as fmtDate, parseNumber, qty, today } from '../lib/format';
 import { uid } from '../lib/id';
+import { findDuplicates } from '../lib/assets';
 import { Card, Empty, Field, Icon, Modal, PageHead } from '../components/ui';
 
 const TYPE_LABELS = new Map(ASSET_TYPES.map((t) => [t.value, t.label]));
@@ -17,6 +18,15 @@ export function Assets() {
   const sorted = [...data.assets].sort(
     (a, b) => Number((held.get(b.id) ?? 0) > 0) - Number((held.get(a.id) ?? 0) > 0) || a.symbol.localeCompare(b.symbol),
   );
+
+  // Stessa crypto (o stesso ISIN) registrata più volte da fonti diverse.
+  const duplicates = useMemo(() => findDuplicates(data), [data]);
+  const usage = (assetId: string) => {
+    const txs = data.transactions.filter((t) => t.assetId === assetId);
+    const accounts = [...new Set(txs.map((t) => data.accounts.find((a) => a.id === t.accountId)?.name ?? '—'))];
+    return `${txs.length} ${txs.length === 1 ? 'transazione' : 'transazioni'}${accounts.length ? ` (${accounts.join(', ')})` : ''}`;
+  };
+  const merge = (primaryId: string, otherIds: string[]) => dispatch({ type: 'mergeAssets', primaryId, otherIds });
 
   const dirty = Object.entries(prices).filter(([id, v]) => {
     const n = parseNumber(v);
@@ -46,6 +56,50 @@ export function Assets() {
           </>
         }
       />
+      {duplicates.length > 0 && (
+        <Card
+          title="Strumenti doppi"
+          sub="La stessa crypto (o lo stesso ISIN) arriva con nomi diversi da fonti diverse, es. «Bitcoin» di Scalable e «BTC» degli exchange. Unendoli hai una posizione sola e i trasferimenti tra i conti si abbinano meglio."
+        >
+          <div className="table-wrap">
+            <table>
+              <tbody>
+                {duplicates.map((g) => (
+                  <tr key={g.key}>
+                    <td>
+                      <div className="cell-title">{g.primary.symbol}</div>
+                      <div className="cell-sub">{usage(g.primary.id)}</div>
+                    </td>
+                    <td>
+                      {g.others.map((o) => (
+                        <div key={o.id} className="small">
+                          anche come <strong>{o.symbol}</strong>
+                          {o.name !== o.symbol && ` · ${o.name}`}
+                          {o.isin && ` · ${o.isin}`} — {usage(o.id)}
+                        </div>
+                      ))}
+                    </td>
+                    <td className="num">
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() =>
+                          confirm(
+                            `Unire ${g.others.map((o) => `«${o.symbol}»`).join(', ')} in «${g.primary.symbol}»? Le transazioni passano a ${g.primary.symbol}; l'operazione non si può annullare (conviene un backup in Impostazioni).`,
+                          ) && merge(g.primary.id, g.others.map((o) => o.id))
+                        }
+                      >
+                        Unisci in {g.primary.symbol}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <Card>
         {sorted.length === 0 ? (
           <Empty title="Nessuno strumento">
@@ -106,6 +160,12 @@ export function Assets() {
         <AssetForm
           initial={editing === 'new' ? undefined : editing}
           txCount={editing === 'new' ? 0 : data.transactions.filter((t) => t.assetId === editing.id).length}
+          others={editing === 'new' ? [] : data.assets.filter((a) => a.id !== editing.id)}
+          onMerge={(otherId) => {
+            if (editing === 'new') return;
+            merge(editing.id, [otherId]);
+            setEditing(null);
+          }}
           onClose={() => setEditing(null)}
           onSave={(asset) => {
             dispatch({ type: 'upsertAsset', asset });
@@ -124,16 +184,22 @@ export function Assets() {
 function AssetForm({
   initial,
   txCount,
+  others,
   onClose,
   onSave,
   onDelete,
+  onMerge,
 }: {
   initial?: Asset;
   txCount: number;
+  /** Altri strumenti che si possono unire a questo. */
+  others: Asset[];
   onClose: () => void;
   onSave: (a: Asset) => void;
   onDelete: (id: string) => void;
+  onMerge: (otherId: string) => void;
 }) {
+  const [mergeId, setMergeId] = useState('');
   const [f, setF] = useState({
     symbol: initial?.symbol ?? '',
     name: initial?.name ?? '',
@@ -217,6 +283,37 @@ function AssetForm({
             </span>
           </label>
         </div>
+        {initial && others.length > 0 && (
+          <div className="stack" style={{ gap: 6, marginTop: 14 }}>
+            <Field label="Unisci un altro strumento in questo">
+              <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                <select className="input" style={{ minWidth: 0 }} value={mergeId} onChange={(e) => setMergeId(e.target.value)}>
+                  <option value="">Scegli lo strumento doppio…</option>
+                  {[...others]
+                    .sort((a, b) => Number(b.type === initial.type) - Number(a.type === initial.type) || a.symbol.localeCompare(b.symbol))
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.symbol}
+                        {a.name !== a.symbol ? ` · ${a.name}` : ''}
+                        {a.isin ? ` · ${a.isin}` : ''}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!mergeId}
+                  onClick={() => {
+                    const other = others.find((a) => a.id === mergeId);
+                    if (other && confirm(`Unire «${other.symbol}» in «${initial.symbol}»? Le sue transazioni passano a ${initial.symbol} e «${other.symbol}» viene eliminato.`)) onMerge(other.id);
+                  }}
+                >
+                  Unisci
+                </button>
+              </div>
+            </Field>
+          </div>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}

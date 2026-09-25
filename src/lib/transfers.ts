@@ -9,6 +9,7 @@ import {
   type TxRef,
 } from './types';
 import { uid } from './id';
+import { identityKey } from './assets';
 
 /**
  * Riconoscimento dei trasferimenti tra i propri conti.
@@ -68,11 +69,9 @@ const AUTO_MIRROR = /\(automatico\)/i;
 const isAdjustment = (t: Transaction) => !!t.externalId && /:adj:/.test(t.externalId);
 const isCashAdjustment = (t: Transaction) => !!t.externalId && /:adjcash:/.test(t.externalId);
 
-/** Chiave che identifica lo stesso strumento anche se registrato due volte (es. BTC su due exchange). */
+/** Chiave che identifica lo stesso strumento anche se registrato due volte (es. BTC e "Bitcoin" di Scalable). */
 function assetKey(a: Asset | undefined, id: string) {
-  if (!a) return `id:${id}`;
-  if (a.type === 'crypto') return `crypto:${a.symbol.trim().toUpperCase()}`;
-  return a.isin ? `isin:${a.isin}` : `id:${a.id}`;
+  return a ? identityKey(a) : `id:${id}`;
 }
 
 const confidence = (score: number, high: number, mid: number): Confidence =>

@@ -3,6 +3,7 @@ import { INFLOW_QTY, OUTFLOW_QTY, multiplierOf } from './types';
 import type { SyncResult } from './sync-types';
 import { computePortfolio, quantityAt } from './portfolio';
 import { uid } from './id';
+import { cryptoTicker } from './assets';
 
 export interface MergeStats {
   added: number;
@@ -69,6 +70,9 @@ export function mergeSync(
     // Il confronto ignora maiuscole/minuscole, ma il nome si conserva com'è ("FTSE All-World", non "FTSE ALL-WORLD").
     const symbol = sa.symbol.trim().toUpperCase();
     let i = sa.isin ? assets.findIndex((a) => a.isin === sa.isin) : -1;
+    // Crypto: stessa moneta anche con nomi diversi (es. "Bitcoin" con ISIN XF000BTC0017 e "BTC").
+    const ticker = cryptoTicker(sa);
+    if (i === -1 && ticker) i = assets.findIndex((a) => cryptoTicker(a) === ticker);
     if (i === -1) {
       i = assets.findIndex(
         (a) => a.symbol.toUpperCase() === symbol && (!a.isin || !sa.isin || a.isin === sa.isin) && a.type === sa.type,

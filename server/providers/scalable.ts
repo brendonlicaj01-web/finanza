@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AssetType } from '../../src/lib/types.ts';
 import { classify } from '../../src/lib/importers/util.ts';
+import { cryptoTicker } from '../../src/lib/assets.ts';
 import { DATA_DIR } from '../store.ts';
 import type { SyncAsset, SyncHolding, SyncResult, SyncTx } from '../../src/lib/sync-types.ts';
 import { ProviderError, type Provider } from './types.ts';
@@ -143,11 +144,14 @@ export function scalableToSync(
     const tp = type || known?.type || '';
     const a = assets.get(isin);
     if (!a) {
-      assets.set(isin, { key: isin, symbol: nm || isin, name: nm || isin, type: assetType(tp, nm, isin), isin, taxRate: 26 });
+      const type = assetType(tp, nm, isin);
+      // Crypto: il simbolo è il ticker (BTC, non "Bitcoin"), come sugli exchange e nei wallet.
+      const symbol = cryptoTicker({ symbol: nm || isin, name: nm, type, isin }) ?? (nm || isin);
+      assets.set(isin, { key: isin, symbol, name: nm || isin, type, isin, taxRate: 26 });
     } else {
       if (nm && a.name === isin) {
         a.name = nm;
-        a.symbol = nm;
+        a.symbol = cryptoTicker({ symbol: nm, name: nm, type: a.type, isin }) ?? nm;
       }
       if (a.type === 'altro' && (tp || nm)) a.type = assetType(tp, nm, isin);
     }

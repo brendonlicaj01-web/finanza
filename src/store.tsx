@@ -5,6 +5,7 @@ import { loadData, saveData } from './lib/storage';
 import { computePortfolio, type PortfolioResult } from './lib/portfolio';
 import { setCurrency, today } from './lib/format';
 import { mergeSync } from './lib/sync';
+import { mergeAssets } from './lib/assets';
 import type { SyncResult } from './lib/sync-types';
 
 export type Action =
@@ -18,6 +19,8 @@ export type Action =
   /** Conferma o scarta una coppia di trasferimento (sostituisce decisioni precedenti sulle stesse metà). */
   | { type: 'decideTransfer'; link: TransferLink }
   | { type: 'undoTransfer'; id: string }
+  /** Unisce strumenti doppi: le transazioni passano al principale, gli altri vengono eliminati. */
+  | { type: 'mergeAssets'; primaryId: string; otherIds: string[] }
   | { type: 'updateSettings'; settings: Partial<Settings> }
   | { type: 'replace'; data: AppData }
   | { type: 'applySync'; connection: { id: string; label: string }; result: SyncResult; today: string }
@@ -62,6 +65,8 @@ export function reducer(state: AppData, action: Action): AppData {
       });
       return { ...state, transferLinks: [...others, l] };
     }
+    case 'mergeAssets':
+      return mergeAssets(state, action.primaryId, action.otherIds);
     case 'undoTransfer':
       return { ...state, transferLinks: (state.transferLinks ?? []).filter((l) => l.id !== action.id) };
     case 'upsertAsset':
