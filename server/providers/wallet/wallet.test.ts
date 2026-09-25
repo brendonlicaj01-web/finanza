@@ -7,6 +7,7 @@ import { tronHex, tronMovements } from './tron.ts';
 import { xrpMovements } from './others.ts';
 import { PriceBook } from './prices.ts';
 import { walletToSync } from './index.ts';
+import { readZerion, zerionMovements, type ZTransaction } from './zerion.ts';
 import { fromUnits } from './http.ts';
 import { emptyChainData, type ChainData } from './types.ts';
 import { mergeSync } from '../../../src/lib/sync.ts';
@@ -152,11 +153,12 @@ describe('Ethereum e reti compatibili', () => {
     const calls: string[] = [];
     const scan: Scan = async <R,>(chain: { id: string }, p: Record<string, string>) => {
       calls.push(`${chain.id}:${p.action}`);
+      // BNB Chain non coperta da Routescan: si ripiega sul nodo pubblico.
+      if (chain.id === 'bsc') throw new ScanUnavailable('404');
       if (chain.id !== 'base') return [] as R[];
       if (p.action === 'txlist') return normal as R[];
-      if (p.action === 'tokentx') return tokens.slice(0, 1) as R[];
+      if (p.action === 'tokentx') return [{ ...tokens[0], contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' }] as R[];
       if (p.action === 'balance') return '600000000000000000';
-      if (p.action === 'tokenlist') return [{ balance: '250000000', contractAddress: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', decimals: '6', symbol: 'USDC', name: 'USD Coin', type: 'ERC-20' }] as R[];
       return [] as R[];
     };
     const rpcs: string[] = [];
@@ -167,9 +169,9 @@ describe('Ethereum e reti compatibili', () => {
     const d = await readEvm([ME], { scan, get, chains: EVM_CHAINS.filter((c) => ['ethereum', 'base', 'bsc'].includes(c.id)) });
     expect(d.balances.get('ETH')).toBeCloseTo(0.6);
     expect(d.balances.get('USDC')).toBe(250);
-    // BNB Chain senza esploratore gratuito: solo saldo dal nodo pubblico.
+    // BNB Chain non coperta: solo saldo dal nodo pubblico, con il suggerimento della chiave Zerion.
     expect(d.balances.get('BNB')).toBe(1);
-    expect(d.warnings.join(' ')).toMatch(/BNB Chain: letto solo il saldo/);
+    expect(d.warnings.join(' ')).toMatch(/BNB Chain: letto solo il saldo della moneta della rete\. Per token e storico aggiungi una chiave Zerion/);
     expect(d.warnings.join(' ')).toMatch(/Reti EVM con movimenti: Base/);
     // Ethereum vuoto: solo il sondaggio (2 richieste), niente storico.
     expect(calls.filter((c) => c.startsWith('ethereum'))).toEqual(['ethereum:txlist', 'ethereum:tokentx']);
@@ -273,11 +275,18 @@ describe('prezzi', () => {
     expect(book.at('BTC', day('2017-01-01'))).toBe(11000); // prima della serie: il primo prezzo noto
   });
 
-  it('segnala una chiave Etherscan non valida invece di ignorarla', async () => {
-    const scan = makeScan('sbagliata', (async () => ({ status: '0', message: 'NOTOK', result: 'Invalid API Key' })) as never);
-    await expect(scan(EVM_CHAINS[0], { module: 'account', action: 'txlist', address: ME })).rejects.toThrow(/chiave API non valida/);
-    const free = makeScan('ok', (async () => ({ status: '0', message: 'NOTOK', result: 'Free API access is not supported for this chain' })) as never);
-    await expect(free(EVM_CHAINS[7], { module: 'account', action: 'txlist', address: ME })).rejects.toBeInstanceOf(ScanUnavailable);
+  it('Routescan: indirizzo senza chiave; una rete non coperta passa al nodo pubblico', async () => {
+    const urls: string[] = [];
+    const ok = makeScan((async (url: string) => {
+      urls.push(url);
+      return { status: '1', message: 'OK', result: [] };
+    }) as never);
+    await ok(EVM_CHAINS[2], { module: 'account', action: 'txlist', address: ME });
+    expect(urls[0]).toBe(`https://api.routescan.io/v2/network/mainnet/evm/8453/etherscan/api?module=account&action=txlist&address=${ME}`);
+    const missing = makeScan((async () => {
+      throw new Error('Routescan ha risposto con errore 404.');
+    }) as never);
+    await expect(missing(EVM_CHAINS[7], { module: 'account', action: 'txlist', address: ME })).rejects.toBeInstanceOf(ScanUnavailable);
   });
 
   it('converte le quantità intere senza perdere precisione', () => {
@@ -366,5 +375,76 @@ describe('dal wallet all\'app', () => {
     expect(pos.cost).toBeCloseTo(2000);
     expect(p.summary.realized).toBe(0);
     expect(findTransfers(data).pairs[0]).toMatchObject({ labeled: true, confidence: 'alta' });
+  });
+});
+
+describe('Zerion (con chiave gratuita)', () => {
+  const tx = (o: Partial<ZTransaction['attributes']>, chain = 'base'): ZTransaction => ({
+    attributes: { hash: '0xh', mined_at: '2025-05-01T10:00:00Z', status: 'confirmed', sent_from: ME, ...o },
+    relationships: { chain: { data: { id: chain } } },
+  });
+
+  it('interpreta invii, ricezioni e scambi con i valori in euro del momento', () => {
+    // Scambio: 0,1 ETH → 300 USDC, commissione 0,0005 ETH pagata dall'utente.
+    const swap = zerionMovements(ME, tx({
+      operation_type: 'trade',
+      fee: { fungible_info: { symbol: 'ETH' }, quantity: { float: 0.0005 }, price: 3000, value: 1.5 },
+      transfers: [
+        { fungible_info: { symbol: 'ETH' }, direction: 'out', quantity: { float: 0.1 }, price: 3000, value: 300 },
+        { fungible_info: { symbol: 'USDC' }, direction: 'in', quantity: { float: 300 }, price: 0.92, value: 276 },
+      ],
+    }));
+    expect(swap).toEqual([
+      { chain: 'base', hash: '0xh', time: Date.parse('2025-05-01T10:00:00Z'), symbol: 'ETH', amount: -0.1, price: 3000, fee: 0.0005 },
+      { chain: 'base', hash: '0xh', time: Date.parse('2025-05-01T10:00:00Z'), symbol: 'USDC', amount: 300, price: 0.92 },
+    ]);
+    // Ricezione (la commissione l'ha pagata chi invia) e quantità come numero semplice.
+    const recv = zerionMovements(ME, tx({ sent_from: OTHER, fee: { fungible_info: { symbol: 'SOL' }, quantity: 0.000005 }, transfers: [{ fungible_info: { symbol: 'SOL' }, direction: 'in', quantity: 2, value: 300 }] }, 'solana'));
+    expect(recv).toEqual([{ chain: 'solana', hash: '0xh', time: Date.parse('2025-05-01T10:00:00Z'), symbol: 'SOL', amount: 2, price: 150 }]);
+    // Fallita: solo la commissione; NFT e movimenti "self" ignorati.
+    const failed = zerionMovements(ME, tx({ status: 'failed', fee: { fungible_info: { symbol: 'ETH' }, quantity: { float: 0.001 }, price: 3000 }, transfers: [{ fungible_info: { symbol: 'ETH' }, direction: 'out', quantity: 1 }] }));
+    expect(failed).toEqual([{ chain: 'base', hash: '0xh', time: Date.parse('2025-05-01T10:00:00Z'), symbol: 'ETH', amount: 0, fee: 0.001, price: 3000 }]);
+    expect(zerionMovements(ME, tx({ transfers: [{ fungible_info: null, direction: 'in', quantity: 1 }, { fungible_info: { symbol: 'ETH' }, direction: 'self', quantity: 1 }] }))).toEqual([]);
+  });
+
+  it('pagina lo storico, legge i saldi e usa l\'autenticazione Basic', async () => {
+    const seen: { url: string; auth?: string }[] = [];
+    const get = (async (url: string, init: { headers?: Record<string, string> }) => {
+      seen.push({ url, auth: init.headers?.Authorization });
+      if (url.includes('/positions/')) {
+        return { data: [
+          { attributes: { position_type: 'wallet', quantity: { float: 0.4 }, price: 3100, fungible_info: { symbol: 'ETH' } } },
+          { attributes: { position_type: 'wallet', quantity: { float: 5 }, price: 1, fungible_info: { symbol: 'SCAM' }, flags: { is_trash: true } } },
+        ] };
+      }
+      if (url.includes('page2')) return { data: [tx({ hash: '0x2', transfers: [{ fungible_info: { symbol: 'ETH' }, direction: 'out', quantity: 0.6, price: 3000 }] })], links: {} };
+      return { data: [tx({ hash: '0x1', sent_from: OTHER, transfers: [{ fungible_info: { symbol: 'ETH' }, direction: 'in', quantity: 1, price: 2000 }] })], links: { next: 'https://api.zerion.io/v1/page2' } };
+    }) as never;
+    const d = await readZerion([ME], 'zk_dev_test', get);
+    expect(d.movements.map((m) => [m.hash, m.amount])).toEqual([['0x1', 1], ['0x2', -0.6]]);
+    expect([...d.balances]).toEqual([['ETH', 0.4]]);
+    expect(d.prices?.get('ETH')).toBe(3100);
+    expect(seen[0].url).toContain(`/wallets/${ME}/transactions/?currency=eur&page[size]=100&filter[trash]=only_non_trash`);
+    expect(seen[0].auth).toBe(`Basic ${Buffer.from('zk_dev_test:').toString('base64')}`);
+  });
+
+  it('chiave non valida: messaggio chiaro', async () => {
+    const get = (async () => {
+      throw new Error('Zerion ha risposto con errore 401.');
+    }) as never;
+    await expect(readZerion([ME], 'sbagliata', get)).rejects.toThrow(/Zerion: chiave API non valida/);
+  });
+
+  it('i prezzi della fonte valgono anche per monete che Binance non conosce', () => {
+    const chains: ChainData[] = [{
+      ...emptyChainData(),
+      movements: [{ chain: 'base', hash: '0xa', time: Date.parse('2025-05-01T10:00:00Z'), symbol: 'AERO', amount: 100, price: 0.5 }],
+      balances: new Map([['AERO', 100]]),
+      prices: new Map([['AERO', 0.8]]),
+    }];
+    const r = walletToSync(chains, fixedPrices({}));
+    expect(r.transactions[0]).toMatchObject({ type: 'trasf_entrata', quantity: 100, price: 0.5 });
+    expect(r.assets[0]).toMatchObject({ symbol: 'AERO', price: 0.8 });
+    expect(r.holdings).toEqual([{ assetKey: 'crypto:AERO', quantity: 100 }]);
   });
 });

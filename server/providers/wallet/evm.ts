@@ -3,10 +3,13 @@ import { fromUnits, getJson, pool } from './http.ts';
 import { addBalance, emptyChainData, type ChainData, type Movement } from './types.ts';
 
 /**
- * Ethereum e reti compatibili (EVM). Lo stesso indirizzo 0x… viene cercato su tutte le reti.
- * - Senza chiave: storico completo dagli esploratori Blockscout (API compatibile con Etherscan), per le reti che
- *   ne hanno uno pubblico; per le altre solo il saldo della moneta della rete (nodo RPC pubblico).
- * - Con una chiave Etherscan (gratuita): storico da Etherscan su tutte le reti che la chiave consente.
+ * Ethereum e reti compatibili (EVM) **senza chiave**: lo stesso indirizzo 0x… viene cercato su tutte le reti.
+ * Storico da Routescan (API compatibile con Etherscan, gratuita senza chiave: 2 richieste al secondo) per le reti
+ * che copre; per le altre solo il saldo della moneta della rete (nodo RPC pubblico).
+ * Con una chiave Zerion (gratuita) si usa invece Zerion, che copre tutte le reti in un colpo solo (zerion.ts).
+ *
+ * Nota (2026): Etherscan e Blockscout richiedono ormai una chiave, ed Etherscan ha tolto dal piano gratuito
+ * Base, BNB Chain, Optimism, Avalanche e Gnosis.
  */
 
 export interface EvmChain {
@@ -14,18 +17,17 @@ export interface EvmChain {
   name: string;
   chainId: number;
   symbol: string;
-  blockscout?: string;
   rpc?: string;
 }
 
 export const EVM_CHAINS: EvmChain[] = [
-  { id: 'ethereum', name: 'Ethereum', chainId: 1, symbol: 'ETH', blockscout: 'https://eth.blockscout.com', rpc: 'https://ethereum-rpc.publicnode.com' },
-  { id: 'arbitrum', name: 'Arbitrum', chainId: 42161, symbol: 'ETH', blockscout: 'https://arbitrum.blockscout.com', rpc: 'https://arb1.arbitrum.io/rpc' },
-  { id: 'base', name: 'Base', chainId: 8453, symbol: 'ETH', blockscout: 'https://base.blockscout.com', rpc: 'https://mainnet.base.org' },
-  { id: 'optimism', name: 'Optimism', chainId: 10, symbol: 'ETH', blockscout: 'https://optimism.blockscout.com', rpc: 'https://mainnet.optimism.io' },
-  { id: 'polygon', name: 'Polygon', chainId: 137, symbol: 'POL', blockscout: 'https://polygon.blockscout.com', rpc: 'https://polygon-rpc.com' },
-  { id: 'gnosis', name: 'Gnosis', chainId: 100, symbol: 'XDAI', blockscout: 'https://gnosis.blockscout.com', rpc: 'https://rpc.gnosischain.com' },
-  { id: 'scroll', name: 'Scroll', chainId: 534352, symbol: 'ETH', blockscout: 'https://scroll.blockscout.com', rpc: 'https://rpc.scroll.io' },
+  { id: 'ethereum', name: 'Ethereum', chainId: 1, symbol: 'ETH', rpc: 'https://ethereum-rpc.publicnode.com' },
+  { id: 'arbitrum', name: 'Arbitrum', chainId: 42161, symbol: 'ETH', rpc: 'https://arb1.arbitrum.io/rpc' },
+  { id: 'base', name: 'Base', chainId: 8453, symbol: 'ETH', rpc: 'https://mainnet.base.org' },
+  { id: 'optimism', name: 'Optimism', chainId: 10, symbol: 'ETH', rpc: 'https://mainnet.optimism.io' },
+  { id: 'polygon', name: 'Polygon', chainId: 137, symbol: 'POL', rpc: 'https://polygon-rpc.com' },
+  { id: 'gnosis', name: 'Gnosis', chainId: 100, symbol: 'XDAI', rpc: 'https://rpc.gnosischain.com' },
+  { id: 'scroll', name: 'Scroll', chainId: 534352, symbol: 'ETH', rpc: 'https://rpc.scroll.io' },
   { id: 'bsc', name: 'BNB Chain', chainId: 56, symbol: 'BNB', rpc: 'https://bsc-dataseed.bnbchain.org' },
   { id: 'avalanche', name: 'Avalanche C-Chain', chainId: 43114, symbol: 'AVAX', rpc: 'https://api.avax.network/ext/bc/C/rpc' },
   { id: 'linea', name: 'Linea', chainId: 59144, symbol: 'ETH', rpc: 'https://rpc.linea.build' },
@@ -117,41 +119,35 @@ interface TokenTx {
   tokenName: string;
   tokenDecimal: string;
 }
-interface TokenBalance {
-  balance: string;
-  contractAddress: string;
-  decimals: string;
-  symbol: string;
-  name: string;
-  type?: string;
-}
-
 export type Scan = <T>(chain: EvmChain, params: Record<string, string>) => Promise<T[] | string>;
 
-/** Errore specifico di una rete (es. non inclusa nel piano gratuito di Etherscan): si passa alla fonte successiva. */
+/** La rete non è coperta dalla fonte: si ripiega sul saldo dal nodo pubblico. */
 export class ScanUnavailable extends Error {}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Richiesta in formato Etherscan (Etherscan V2 con chiave, altrimenti Blockscout). */
-export function makeScan(apiKey?: string, get = getJson): Scan {
+export const ROUTESCAN = 'https://api.routescan.io/v2/network/mainnet/evm';
+
+/** Richiesta in formato Etherscan a Routescan (senza chiave). */
+export function makeScan(get = getJson): Scan {
   return async <T>(chain: EvmChain, params: Record<string, string>) => {
-    const useEtherscan = !!apiKey;
-    const base = useEtherscan ? 'https://api.etherscan.io/v2/api' : `${chain.blockscout}/api`;
-    const query = new URLSearchParams({ ...(useEtherscan ? { chainid: String(chain.chainId), apikey: apiKey! } : {}), ...params });
+    const url = `${ROUTESCAN}/${chain.chainId}/etherscan/api?${new URLSearchParams(params)}`;
     for (let attempt = 0; ; attempt++) {
-      const r = await get<ScanResponse<T[]>>(`${base}?${query}`, { label: useEtherscan ? 'Etherscan' : `Blockscout ${chain.name}` });
-      if (r.status === '1' || Array.isArray(r.result) && r.result.length) return r.result as T[];
+      let r: ScanResponse<T[]>;
+      try {
+        r = await get<ScanResponse<T[]>>(url, { label: `Routescan ${chain.name}` });
+      } catch (e) {
+        // Rete non coperta (404/400) o servizio non disponibile: si passa al nodo pubblico.
+        throw new ScanUnavailable((e as Error).message);
+      }
+      if (r.status === '1' || (Array.isArray(r.result) && r.result.length)) return r.result as T[];
       const msg = `${r.message ?? ''} ${typeof r.result === 'string' ? r.result : ''}`;
       if (/no (transactions|records|token transfers) found|no data/i.test(msg) || (Array.isArray(r.result) && !r.result.length)) return [];
-      if (/rate limit|max calls/i.test(msg) && attempt < 4) {
-        await sleep(1200 * (attempt + 1));
+      if (/rate limit|max calls|too many/i.test(msg) && attempt < 5) {
+        await sleep(1500 * (attempt + 1));
         continue;
       }
       if (params.action === 'balance' && typeof r.result === 'string' && /^\d+$/.test(r.result)) return r.result;
-      if (/invalid api ?key|missing\/invalid api key/i.test(msg)) {
-        throw new ProviderError('Etherscan: chiave API non valida. Controllala su etherscan.io (My Account → API Keys) o lascia il campo vuoto.');
-      }
       throw new ScanUnavailable(msg.trim() || 'risposta non valida');
     }
   };
@@ -253,82 +249,57 @@ async function rpcBalance(chain: EvmChain, address: string, get = getJson): Prom
 
 export async function readEvm(
   addresses: string[],
-  options: { apiKey?: string; chains?: EvmChain[]; scan?: Scan; get?: typeof getJson } = {},
+  options: { chains?: EvmChain[]; scan?: Scan; get?: typeof getJson } = {},
 ): Promise<ChainData> {
   const data = emptyChainData();
   const get = options.get ?? getJson;
-  const keyScan = options.apiKey ? (options.scan ?? makeScan(options.apiKey, get)) : undefined;
-  const freeScan = options.scan && !options.apiKey ? options.scan : makeScan(undefined, get);
+  const scan = options.scan ?? makeScan(get);
   const skipped = new Set<string>();
   const historyless: string[] = [];
   const found: string[] = [];
 
   const tasks = (options.chains ?? EVM_CHAINS).flatMap((chain) => addresses.map((address) => ({ chain, address })));
   const failed = new Map<string, string>();
-  let fatal: Error | undefined;
-  await pool(tasks, 3, async (task) => {
+  // Routescan senza chiave accetta 2 richieste al secondo.
+  await pool(tasks, 2, async (task) => {
     try {
       await readChain(task);
     } catch (e) {
-      // Una rete irraggiungibile non blocca le altre; una chiave sbagliata sì (va corretta).
-      if (/chiave API non valida/.test((e as Error).message)) fatal = e as Error;
+      // Una rete irraggiungibile non blocca le altre.
       failed.set(task.chain.name, (e as Error).message);
     }
   });
-  if (fatal) throw fatal;
   if (failed.size === tasks.length && tasks.length) throw new ProviderError([...failed.values()][0]);
   if (failed.size) data.warnings.push(`Reti EVM non lette: ${[...failed.keys()].join(', ')} (${[...failed.values()][0]}).`);
 
   async function readChain({ chain, address }: { chain: EvmChain; address: string }) {
-    const sources: Scan[] = [];
-    if (keyScan) sources.push(keyScan);
-    if (chain.blockscout) sources.push(freeScan);
-    for (const scan of sources) {
-      try {
-        // Sondaggio leggero: se sulla rete non c'è nulla, niente altre richieste.
-        const probe = await Promise.all([
-          scan<NormalTx>(chain, { module: 'account', action: 'txlist', address, page: '1', offset: '1', sort: 'asc' }),
-          scan<TokenTx>(chain, { module: 'account', action: 'tokentx', address, page: '1', offset: '1', sort: 'asc' }),
-        ]);
-        if (probe.every((p) => typeof p !== 'string' && !p.length)) {
-          const bal = await rpcBalance(chain, address, get).catch(() => 0);
-          if (bal) addBalance(data.balances, chain.symbol, bal);
-          return;
-        }
-        const [normal, internal, tokens] = await Promise.all([
-          listAll<NormalTx>(scan, chain, 'txlist', address),
-          listAll<NormalTx>(scan, chain, 'txlistinternal', address),
-          listAll<TokenTx>(scan, chain, 'tokentx', address),
-        ]);
-        if (normal.truncated || internal.truncated || tokens.truncated) {
-          data.warnings.push(`${chain.name}: più di 10.000 operazioni, importate solo le prime (i saldi restano allineati).`);
-        }
-        const moves = evmMovements(chain, address, normal.items, internal.items, tokens.items, skipped);
-        data.movements.push(...moves);
-        found.push(chain.name);
-
-        // Saldi: moneta della rete e token (elenco dei saldi su Blockscout, altrimenti somma dello storico).
-        const native = await scan<string>(chain, { module: 'account', action: 'balance', address, tag: 'latest' });
-        addBalance(data.balances, chain.symbol, fromUnits(typeof native === 'string' ? native : '0', 18));
-        let list: TokenBalance[] | undefined;
-        if (scan === freeScan) {
-          const r = await scan<TokenBalance>(chain, { module: 'account', action: 'tokenlist', address }).catch(() => undefined);
-          if (r && typeof r !== 'string') list = r;
-        }
-        if (list) {
-          for (const t of list) {
-            if (t.type && !/ERC-?20/i.test(t.type)) continue;
-            if (isSpamToken(chain.id, t.symbol ?? '', t.name ?? '', t.contractAddress)) continue;
-            addBalance(data.balances, (t.symbol ?? '').toUpperCase(), fromUnits(t.balance, Number(t.decimals) || 0));
-          }
-        } else {
-          for (const m of moves) if (m.symbol !== chain.symbol) addBalance(data.balances, m.symbol, m.amount);
-        }
+    try {
+      // Sondaggio leggero: se sulla rete non c'è nulla, niente altre richieste.
+      const probe = await Promise.all([
+        scan<NormalTx>(chain, { module: 'account', action: 'txlist', address, page: '1', offset: '1', sort: 'asc' }),
+        scan<TokenTx>(chain, { module: 'account', action: 'tokentx', address, page: '1', offset: '1', sort: 'asc' }),
+      ]);
+      if (probe.every((p) => typeof p !== 'string' && !p.length)) {
+        const bal = await rpcBalance(chain, address, get).catch(() => 0);
+        if (bal) addBalance(data.balances, chain.symbol, bal);
         return;
-      } catch (e) {
-        if (!(e instanceof ScanUnavailable)) throw e;
-        // Prova la fonte successiva (es. rete non inclusa nel piano gratuito Etherscan → Blockscout).
       }
+      const normal = await listAll<NormalTx>(scan, chain, 'txlist', address);
+      const internal = await listAll<NormalTx>(scan, chain, 'txlistinternal', address);
+      const tokens = await listAll<TokenTx>(scan, chain, 'tokentx', address);
+      if (normal.truncated || internal.truncated || tokens.truncated) {
+        data.warnings.push(`${chain.name}: più di 10.000 operazioni, importate solo le prime (i saldi restano allineati).`);
+      }
+      const moves = evmMovements(chain, address, normal.items, internal.items, tokens.items, skipped);
+      data.movements.push(...moves);
+      found.push(chain.name);
+      // Saldi: moneta della rete dal servizio, token come somma dello storico.
+      const native = await scan<string>(chain, { module: 'account', action: 'balance', address, tag: 'latest' });
+      addBalance(data.balances, chain.symbol, fromUnits(typeof native === 'string' ? native : '0', 18));
+      for (const m of moves) if (m.symbol !== chain.symbol) addBalance(data.balances, m.symbol, m.amount);
+      return;
+    } catch (e) {
+      if (!(e instanceof ScanUnavailable)) throw e;
     }
     // Nessuno storico disponibile per questa rete: almeno il saldo della moneta della rete.
     const bal = await rpcBalance(chain, address, get);
@@ -343,7 +314,7 @@ export async function readEvm(
   }
   if (historyless.length) {
     data.warnings.push(
-      `${[...new Set(historyless)].join(', ')}: letto solo il saldo della moneta della rete (i token e lo storico richiedono una chiave Etherscan gratuita).`,
+      `${[...new Set(historyless)].join(', ')}: letto solo il saldo della moneta della rete. Per token e storico aggiungi una chiave Zerion gratuita.`,
     );
   }
   if (found.length) data.warnings.push(`Reti EVM con movimenti: ${[...new Set(found)].join(', ')}.`);

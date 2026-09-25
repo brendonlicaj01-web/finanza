@@ -18,12 +18,16 @@ const responses: [RegExp, unknown][] = [
     { txid: 'btc1', fee: 200, status: { confirmed: true, block_time: t('2025-03-01T10:00:00Z') }, vin: [{ prevout: { scriptpubkey_address: 'bc1qother', value: 5_100_000 } }], vout: [{ scriptpubkey_address: BTC, value: 5_000_000 }] },
   ]],
   // Base: movimenti; le altre reti con esploratore: vuote.
-  [/base\.blockscout\.com\/api\?.*action=txlist&/, { status: '1', message: 'OK', result: [
+  [/routescan\.io\/v2\/network\/mainnet\/evm\/8453\/etherscan\/api\?.*action=txlist&/, { status: '1', message: 'OK', result: [
     { hash: '0xb1', timeStamp: String(t('2025-04-01T10:00:00Z')), from: '0x9999999999999999999999999999999999999999', to: EVM, value: '500000000000000000', isError: '0' },
   ] }],
-  [/base\.blockscout\.com\/api\?.*action=balance/, { status: '1', message: 'OK', result: '500000000000000000' }],
-  [/base\.blockscout\.com\/api\?.*action=tokenlist/, { status: '1', message: 'OK', result: [] }],
-  [/blockscout\.com\/api\?/, { status: '0', message: 'No transactions found', result: [] }],
+  [/routescan\.io\/v2\/network\/mainnet\/evm\/8453\/etherscan\/api\?.*action=balance/, { status: '1', message: 'OK', result: '500000000000000000' }],
+  [/routescan\.io\//, { status: '0', message: 'No transactions found', result: [] }],
+  // Zerion: storico e saldi di un indirizzo Solana (già valorizzati in euro).
+  [/api\.zerion\.io\/v1\/wallets\/7EcD.+\/transactions\//, { data: [
+    { attributes: { hash: 'sol1', mined_at: '2025-05-01T10:00:00Z', status: 'confirmed', sent_from: 'someone', transfers: [{ fungible_info: { symbol: 'SOL' }, direction: 'in', quantity: { float: 3 }, price: 140 }] }, relationships: { chain: { data: { id: 'solana' } } } },
+  ], links: {} }],
+  [/api\.zerion\.io\/v1\/wallets\/7EcD.+\/positions\//, { data: [{ attributes: { position_type: 'wallet', quantity: { float: 3 }, price: 150, fungible_info: { symbol: 'SOL' } } }] }],
   // Nodi RPC delle reti senza esploratore gratuito: saldo zero.
   [/./, { jsonrpc: '2.0', id: 1, result: '0x0' }],
 ];
@@ -73,5 +77,14 @@ describe('sincronizzazione di un wallet', () => {
 
     const cache = JSON.parse(await readFile(join(home, 'cache', 'prices.json'), 'utf8'));
     expect(Object.keys(cache).sort()).toEqual(['BTC', 'ETH']);
+  });
+
+  it('con la chiave Zerion, Solana arriva già valorizzato e senza richieste di prezzi', async () => {
+    vi.resetModules();
+    const { wallet } = await import('./index.ts');
+    const r = await wallet.sync({ addresses: '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV', zerionKey: 'zk_dev_x' }, { currency: 'EUR' });
+    expect(r.transactions.map((x) => [x.externalId, x.type, x.quantity, x.price])).toEqual([['wallet:solana:sol1:SOL', 'trasf_entrata', 3, 140]]);
+    expect(r.assets[0]).toMatchObject({ symbol: 'SOL', price: 150 });
+    expect(r.warnings.join(' ')).toMatch(/Reti con movimenti \(Zerion\): solana/);
   });
 });

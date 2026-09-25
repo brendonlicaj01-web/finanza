@@ -14,12 +14,16 @@ export interface Movement {
   amount: number;
   /** Commissione di rete pagata in questa transazione (nella moneta della rete), se a carico dell'utente. */
   fee?: number;
+  /** Prezzo unitario in euro al momento della transazione, se la fonte lo fornisce. */
+  price?: number;
 }
 
 export interface ChainData {
   movements: Movement[];
   /** Saldi attuali per simbolo. */
   balances: Map<string, number>;
+  /** Prezzi attuali in euro forniti dalla fonte (per le monete che le altre fonti di prezzo non conoscono). */
+  prices?: Map<string, number>;
   warnings: string[];
 }
 

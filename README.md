@@ -84,28 +84,34 @@ Gli strumenti importati prima con l'ISIN come nome ricevono nome e tipo corretti
 
 ### Wallet crypto (indirizzi pubblici)
 
-Per Ledger, Trezor, MetaMask, Phantom, Trust e simili: Collegamenti → **Wallet crypto** → incolla gli indirizzi
-pubblici, uno per riga (anche con un nome davanti, es. `Ledger bc1q…`). La rete si riconosce dal formato. Non servono
-né vanno mai inseriti frase segreta o chiavi private.
+Per Ledger, Trezor, MetaMask, Trust, Phantom e ogni altro wallet: Collegamenti → **Wallet crypto** → incolla gli
+indirizzi pubblici, uno per riga (anche con un nome davanti, es. `Ledger bc1q…`). La rete si riconosce dal formato.
+Non servono né vanno mai inseriti frase segreta o chiavi private, e non serve alcuno smart contract: le transazioni
+sono pubbliche sulla blockchain e si leggono da servizi di indicizzazione.
 
-| Rete | Cosa si legge | Fonte (pubblica, senza chiave) |
+**Consigliato:** una chiave gratuita di [Zerion](https://dashboard.zerion.io) (nessuna carta, 3.000 richieste al
+giorno). Con la chiave, per Ethereum e tutte le reti compatibili, Solana e Tron arriva lo storico completo in un colpo
+solo, già interpretato (invii, ricezioni, scambi, commissioni), con i valori in euro del momento e senza token
+truffaldini.
+
+| Rete | Senza chiave | Con chiave Zerion |
 |---|---|---|
-| Bitcoin (indirizzi, xpub/ypub/zpub) | saldo e storico | mempool.space — gli indirizzi della xpub sono derivati sul tuo computer |
-| Litecoin | saldo e storico | litecoinspace.org |
-| Dogecoin | saldo e storico | BlockCypher |
-| Ethereum, Arbitrum, Base, Optimism, Polygon, Gnosis, Scroll | saldo, token e storico | Blockscout |
-| BNB Chain, Avalanche, Linea, zkSync, Blast, Unichain, Mantle, Sonic, Celo, Berachain, Moonbeam, Cronos | saldo della moneta della rete; con una chiave Etherscan gratuita anche token e storico | nodi pubblici / Etherscan |
-| Solana | saldo, token principali e storico | RPC pubblico (o il tuo, es. Helius) |
-| Tron | saldo, TRX e token TRC-20 (USDT) e storico | TronGrid |
-| XRP Ledger | saldo e storico | xrplcluster.com |
-| Cardano, TON, Stellar | solo saldo | Koios, toncenter, Horizon |
+| Bitcoin (indirizzi, xpub/ypub/zpub) | saldo e storico (mempool.space; gli indirizzi della xpub sono derivati sul tuo computer) | uguale |
+| Litecoin, Dogecoin, XRP | saldo e storico (litecoinspace.org, BlockCypher, xrplcluster.com) | uguale |
+| Ethereum e reti compatibili | storico dove Routescan lo offre senza chiave, altrimenti solo il saldo della moneta della rete | storico completo di tutte le reti |
+| Solana | saldo, token principali e storico (RPC pubblico, lento con molte operazioni) | storico completo, tutti i token |
+| Tron | saldo, TRX, USDT e storico (TronGrid) | storico completo |
+| Cardano, TON, Stellar | solo saldo | uguale |
+
+Perché non Etherscan o Blockscout: dal 2026 entrambi richiedono una chiave, ed Etherscan ha tolto dal piano gratuito
+Base, BNB Chain, Optimism, Avalanche e Gnosis.
 
 - Ogni entrata o uscita è un **Trasferimento crypto interno** e si abbina da sola all'altra metà (exchange, altri
   wallet); uno scambio nella stessa transazione (DEX) è vendita + acquisto; la commissione di rete è un'uscita a parte.
-- Valori in euro al prezzo del giorno (Binance, dati pubblici; CryptoCompare per gli anni precedenti), in cache in
-  `~/.finanza/cache`.
-- Token pubblicitari, imitazioni di USDT/USDC e monete senza prezzo di mercato vengono ignorati (con avviso).
+- Valori in euro: quelli della fonte quando ci sono (Zerion), altrimenti il prezzo del giorno (Binance, dati pubblici;
+  CryptoCompare per gli anni precedenti), in cache in `~/.finanza/cache`.
 - I saldi sono sempre allineati a quelli reali: ciò che lo storico non spiega diventa un saldo iniziale.
+- Rimuovendo il collegamento puoi eliminare anche il conto e tutte le sue transazioni.
 
 ### Conti bancari (Enable Banking)
 
@@ -182,7 +188,7 @@ server/
   api.ts             endpoint: fonti, collegamenti, sincronizzazione, autorizzazione bancaria
   store.ts           archivio locale delle credenziali (~/.finanza)
   providers/         Interactive Brokers, eToro, Scalable (CLI), exchange crypto (ccxt), Bitpanda, Enable Banking
-  providers/wallet/  wallet crypto dalle blockchain (Bitcoin/xpub, EVM, Solana, Tron, XRP, Litecoin, Dogecoin…)
+  providers/wallet/  wallet crypto dalle blockchain: Zerion (EVM, Solana, Tron), Bitcoin/xpub, Routescan, Solana RPC…
 ```
 
 ## Note
