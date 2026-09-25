@@ -282,7 +282,11 @@ export function findTransfers(
 
   const securityPairs = [...confirmed.filter((p) => p.kind === 'titoli'), ...assign(securities)];
   if (options.forCalc) {
-    const pairs = securityPairs.filter((p) => p.labeled || p.status === 'confermato');
+    const pairs = [
+      ...securityPairs.filter((p) => p.labeled || p.status === 'confermato'),
+      // Bonifici tra conti: solo quelli confermati.
+      ...confirmed.filter((p) => p.kind === 'liquidita'),
+    ];
     const paired = new Set(pairs.flatMap((p) => [p.out.id, p.in.id]));
     return { pairs, rejected, unmatched: [...outs, ...ins].filter((l) => !paired.has(l.tx.id)).map((l) => l.tx) };
   }
@@ -351,15 +355,26 @@ export interface TransferPlan {
   asTransfer: Set<string>;
   /** Movimenti di liquidità speculari di quelle vendite/acquisti: non erano soldi veri, si ignorano. */
   ignore: Set<string>;
+  /**
+   * Bonifici tra conti confermati (prelievo e versamento): la liquidità si sposta ma non sono versamenti né
+   * prelievi; per l'uscita, la parte non arrivata (costo del bonifico) è una commissione.
+   */
+  giroconti: Map<string, { fee: number }>;
 }
 
 /**
- * Piano per il calcolo: coppie etichettate "Trasferimento crypto interno" (automatiche o confermate) e coppie
- * vendita + acquisto confermate dall'utente. Un'entrata senza uscita abbinata prende il valore del giorno.
+ * Piano per il calcolo: coppie etichettate "Trasferimento crypto interno" (automatiche o confermate), coppie
+ * vendita + acquisto e bonifici tra conti confermati dall'utente. Un'entrata senza uscita abbinata prende il
+ * valore del giorno.
  */
 export function transferPlan(data: AppData): TransferPlan {
-  const plan: TransferPlan = { links: new Map(), asTransfer: new Set(), ignore: new Set() };
+  const plan: TransferPlan = { links: new Map(), asTransfer: new Set(), ignore: new Set(), giroconti: new Map() };
   for (const p of findTransfers(data, {}, { forCalc: true }).pairs) {
+    if (p.kind === 'liquidita') {
+      plan.giroconti.set(p.out.id, { fee: p.difference });
+      plan.giroconti.set(p.in.id, { fee: 0 });
+      continue;
+    }
     plan.links.set(p.in.id, p.out.id);
     if (p.labeled) continue;
     for (const leg of [p.out, p.in]) if (!isTransfer(leg)) plan.asTransfer.add(leg.id);

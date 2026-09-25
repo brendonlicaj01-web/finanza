@@ -286,3 +286,43 @@ describe('coppie vendita + acquisto confermate nel calcolo (passo 3)', () => {
     expect(computePortfolio(d).summary.realized).toBeCloseTo(1000);
   });
 });
+
+describe('bonifici tra conti confermati (passo 4)', () => {
+  const setup = () => {
+    const d = base();
+    d.transactions = [
+      tx({ id: 'stip', accountId: 'bank', date: '2025-01-01', type: 'deposito', amount: 10000, note: 'Stipendio' }),
+      tx({ id: 'b1', accountId: 'bank', date: '2025-03-01', type: 'prelievo', amount: 1000, note: 'Bonifico a OKX', externalId: 'bank:1' }),
+      tx({ id: 'o1', accountId: 'okx', date: '2025-03-03', type: 'deposito', amount: 998.5, externalId: 'okx:1' }),
+      // Prelievo vero (spesa): resta un prelievo.
+      tx({ id: 'spesa', accountId: 'bank', date: '2025-04-01', type: 'prelievo', amount: 200, note: 'Affitto' }),
+    ];
+    return d;
+  };
+
+  it('prima: il bonifico conta come prelievo e versamento', () => {
+    const p = computePortfolio(setup());
+    expect(p.years[0]).toMatchObject({ deposits: 10998.5, withdrawals: 1200 });
+  });
+
+  it('dopo la conferma: non è né versamento né prelievo, il costo del bonifico è una commissione', () => {
+    let d = setup();
+    d = reducer(d, { type: 'decideTransfer', link: decide(d.transactions[1], d.transactions[2], 'confermato') });
+    const p = computePortfolio(d);
+    expect(p.years[0]).toMatchObject({ deposits: 10000, withdrawals: 200, fees: 1.5 });
+    expect(p.summary.netDeposits).toBe(9800);
+    // La liquidità si sposta comunque: 10000 − 1000 − 200 in banca, 998,50 su OKX.
+    const cash = (acc: string) => p.cash.find((c) => c.accountId === acc)!.cash;
+    expect(cash('bank')).toBeCloseTo(8800);
+    expect(cash('okx')).toBeCloseTo(998.5);
+    // Patrimonio = capitale versato − commissione.
+    expect(p.summary.netWorth).toBeCloseTo(9798.5);
+    expect(p.summary.totalGain).toBeCloseTo(-1.5);
+  });
+
+  it('i bonifici solo proposti non cambiano i report', () => {
+    const d = setup();
+    expect(findTransfers(d).pairs).toMatchObject([{ kind: 'liquidita' }]);
+    expect(computePortfolio(d).years[0]).toMatchObject({ deposits: 10998.5, withdrawals: 1200 });
+  });
+});

@@ -19,7 +19,8 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
   conti e gli invii senza controparte: ogni coppia si **conferma** o si **scarta**, e i movimenti rimasti soli si
   abbinano a mano. Le decisioni restano valide dopo sincronizzazioni e reimport. Una coppia confermata registrata come
   vendita + acquisto diventa un trasferimento anche nei conti: niente plusvalenza, costo di carico spostato, e i
-  prelievi/versamenti automatici che l'accompagnavano non contano più.
+  prelievi/versamenti automatici che l'accompagnavano non contano più. Un bonifico tra conti confermato sposta la
+  liquidità ma non è un versamento né un prelievo; il suo costo è una commissione.
 - **Strumenti**: azioni, ETF, obbligazioni, fondi, crypto, materie prime; aggiornamento rapido dei prezzi e aliquota
   fiscale per strumento (26% o 12,5% per titoli di Stato).
 - **Conti**: broker, banche e wallet con saldo investito e liquidità.

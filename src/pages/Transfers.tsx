@@ -51,7 +51,8 @@ export function Transfers() {
       </div>
     );
   const fakeGains = pending.reduce((s, p) => s + (p.recordedGain ?? 0), 0);
-  const doubled = cash.reduce((s, p) => s + (p.out.amount ?? 0), 0);
+  const cashPending = cash.filter((p) => p.status !== 'confermato');
+  const doubled = cashPending.reduce((s, p) => s + (p.out.amount ?? 0), 0);
 
   const route = (p: TransferPair) => (
     <>
@@ -96,7 +97,17 @@ export function Transfers() {
               : 'nessuna coppia da sistemare'
           }
         />
-        <Tile label="Bonifici tra conti" value={cash.length} sub={`${money(doubled)} contati come versamenti e prelievi`} />
+        <Tile
+          label="Bonifici tra conti"
+          value={cash.length}
+          sub={
+            cashPending.length
+              ? `${money(doubled)} ancora contati come versamenti e prelievi (da confermare)`
+              : cash.length
+                ? 'confermati: non contano come versamenti né prelievi'
+                : 'nessun bonifico tra conti'
+          }
+        />
         <Tile label="Da confermare" value={toReview} sub={toReview ? 'coppie proposte in attesa di una tua decisione' : 'tutto verificato'} />
       </div>
 
@@ -161,7 +172,10 @@ export function Transfers() {
         )}
       </Card>
 
-      <Card title="Liquidità" sub="Bonifici tra i tuoi conti: il conto che invia registra un prelievo, quello che riceve un versamento.">
+      <Card
+        title="Liquidità"
+        sub="Bonifici tra i tuoi conti. Confermati, la liquidità passa da un conto all'altro ma non conta come versamento né prelievo; la differenza d'importo (costo del bonifico) è una commissione."
+      >
         {cash.length === 0 ? (
           <Empty title="Nessun bonifico tra conti riconosciuto" />
         ) : (
@@ -274,8 +288,8 @@ export function Transfers() {
       <p className="small muted">
         Le decisioni restano valide anche dopo sincronizzazioni e reimport. Confermando una coppia di titoli o crypto
         il costo di carico passa da un conto all'altro, la «vendita» non genera plusvalenza e i movimenti di liquidità
-        automatici che l'accompagnavano non contano più; scartandola o annullando la conferma torna tutto come prima.
-        Per i bonifici tra conti la conferma cambierà i report nel prossimo passo.
+        automatici che l'accompagnavano non contano più. Un bonifico tra conti confermato non è più un versamento né un
+        prelievo. Scartando una coppia o annullando la conferma torna tutto come prima.
       </p>
     </div>
   );

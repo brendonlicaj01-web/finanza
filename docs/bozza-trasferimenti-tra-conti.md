@@ -77,5 +77,7 @@ Conflitti:
    movimenti di liquidità speculari creati dagli import (`:cash`) non contano più, né in liquidità né nei report.
    Le coppie solo proposte non cambiano il calcolo; annullare la conferma ripristina tutto. Nell'elenco
    Transazioni le righe coinvolte sono indicate come trasferimento o movimento non conteggiato.
-4. **Liquidità.** Anche i bonifici tra conti propri, abbinati, non contano più come versamento o prelievo nel report.
+4. ✅ **Liquidità.** Un bonifico tra conti propri confermato (`TransferPlan.giroconti`) sposta la liquidità ma non
+   conta come versamento né prelievo (report annuale, capitale versato, grafico); la parte non arrivata (costo del
+   bonifico) è una commissione. I bonifici solo proposti non cambiano nulla.
 5. **Unificazione degli strumenti.** Rendere uguale BTC di Scalable a BTC di TR/OKX.

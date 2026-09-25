@@ -135,6 +135,7 @@ export function computePortfolio(data: AppData): PortfolioResult {
         ? 'trasf_uscita'
         : 'trasf_entrata'
       : tx.type;
+    const giro = plan.giroconti.get(tx.id);
     const c = cashOf(tx.accountId);
     const yr = yearOf(tx.date);
     const fees = tx.fees || 0;
@@ -236,16 +237,26 @@ export function computePortfolio(data: AppData): PortfolioResult {
       }
       case 'deposito': {
         const amount = tx.amount ?? 0;
-        c.deposits += amount;
-        yr.deposits += amount;
+        // Bonifico da un altro conto proprio: la liquidità arriva, ma non è un versamento.
+        if (!giro) {
+          c.deposits += amount;
+          yr.deposits += amount;
+        }
         c.cash += amount - fees;
         standaloneFees += fees;
         break;
       }
       case 'prelievo': {
         const amount = tx.amount ?? 0;
-        c.withdrawals += amount;
-        yr.withdrawals += amount;
+        // Bonifico verso un altro conto proprio: la liquidità parte, ma non è un prelievo. Ciò che non arriva
+        // (costo del bonifico) è una commissione.
+        if (!giro) {
+          c.withdrawals += amount;
+          yr.withdrawals += amount;
+        } else if (giro.fee) {
+          standaloneFees += giro.fee;
+          yr.fees += giro.fee;
+        }
         c.cash -= amount + fees;
         standaloneFees += fees;
         break;

@@ -159,6 +159,7 @@ export function Transactions() {
                   const out = OUTFLOW.includes(t.type);
                   const moved = TRANSFER_TX.includes(t.type) || plan.asTransfer.has(t.id);
                   const ignored = plan.ignore.has(t.id);
+                  const giro = plan.giroconti.has(t.id);
                   return (
                     <tr key={t.id} className="clickable" onClick={() => setEditing(t)}>
                       <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.date)}</td>
@@ -174,6 +175,7 @@ export function Transactions() {
                             t.fees > 0 ? `comm. ${money(t.fees)}` : '',
                             plan.asTransfer.has(t.id) ? 'trasferimento tra conti confermato' : '',
                             ignored ? 'movimento automatico del trasferimento, non conteggiato' : '',
+                            giro ? 'bonifico tra conti confermato' : '',
                             t.externalId ? 'importata' : '',
                           ]
                             .filter(Boolean)
@@ -181,7 +183,7 @@ export function Transactions() {
                         </div>
                       </td>
                       <td className="hide-mobile">{accounts.get(t.accountId)?.name}</td>
-                      {moved || ignored ? (
+                      {moved || ignored || giro ? (
                         <td className="num muted" title="Valore spostato tra i tuoi conti: non è un incasso né una spesa">
                           ⇄ {money(Math.abs(total))}
                         </td>

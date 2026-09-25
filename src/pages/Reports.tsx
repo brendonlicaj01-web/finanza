@@ -51,7 +51,8 @@ export function Reports() {
         )}
       </Card>
       <p className="small muted">
-        Le cifre sono indicative e calcolate con il costo medio ponderato. Non sostituiscono la certificazione
+        Versamenti e prelievi non comprendono i bonifici e i trasferimenti tra i tuoi conti confermati nella pagina
+        Trasferimenti. Le cifre sono indicative e calcolate con il costo medio ponderato. Non sostituiscono la certificazione
         fiscale del tuo intermediario né il parere di un commercialista (es. per regime dichiarativo, compensazione
         delle minusvalenze o redditi diversi vs. di capitale).
       </p>
