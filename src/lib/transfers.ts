@@ -77,6 +77,8 @@ function assign(candidates: (TransferPair & { score: number })[]): TransferPair[
 }
 
 const isTransfer = (t: Transaction) => TRANSFER_TX.includes(t.type);
+/** Commissione di rete pagata in crypto dai wallet: esce dal conto, ma non è la metà di un trasferimento. */
+const isNetworkFee = (t: Transaction) => !!t.externalId?.endsWith(':gas');
 
 /**
  * @param options.labeledOnly considera solo i movimenti con l'etichetta "Trasferimento crypto interno"
@@ -119,7 +121,7 @@ export function findTransfers(
   }
   const legs = (types: Transaction['type'][]): Leg[] =>
     data.transactions
-      .filter((t) => types.includes(t.type) && t.assetId && (t.quantity ?? 0) > 0)
+      .filter((t) => types.includes(t.type) && t.assetId && (t.quantity ?? 0) > 0 && !isNetworkFee(t))
       .filter((t) => !options.labeledOnly || isTransfer(t))
       .map((tx) => {
         const mirror = mirrorOf(tx);

@@ -24,7 +24,8 @@ I dati restano **solo nel browser** (localStorage): nessun server, nessun accoun
 - **Collegamenti**: sincronizzazione automatica di operazioni, dividendi, depositi, saldi e prezzi da
   **Interactive Brokers** (Flex Web Service), **eToro** (API pubblica), **Scalable Capital** (CLI ufficiale),
   **Binance**, **Kraken**, **Coinbase**,
-  **Bitpanda** (chiavi API di sola lettura) e dei **conti bancari** via open banking (Enable Banking).
+  **Bitpanda** (chiavi API di sola lettura), dei **wallet crypto** (indirizzi pubblici, tutte le reti principali) e
+  dei **conti bancari** via open banking (Enable Banking).
   Parte da sola all'apertura dell'app.
 - **Impostazioni**: valuta di riferimento, tema chiaro/scuro, tracciamento della liquidità, backup/ripristino JSON,
   esportazione CSV delle transazioni (compatibile con Excel italiano), dati di esempio.
@@ -80,6 +81,31 @@ dettagli delle operazioni nuove. A ogni sincronizzazione rilegge comunque tutto 
 importate in passato senza dettaglio vengono **corrette** (prezzo, commissioni, imposte), senza doppioni, e i saldi
 iniziali/allineamenti automatici vengono ricalcolati. Le transazioni che hai modificato a mano non vengono toccate.
 Gli strumenti importati prima con l'ISIN come nome ricevono nome e tipo corretti.
+
+### Wallet crypto (indirizzi pubblici)
+
+Per Ledger, Trezor, MetaMask, Phantom, Trust e simili: Collegamenti → **Wallet crypto** → incolla gli indirizzi
+pubblici, uno per riga (anche con un nome davanti, es. `Ledger bc1q…`). La rete si riconosce dal formato. Non servono
+né vanno mai inseriti frase segreta o chiavi private.
+
+| Rete | Cosa si legge | Fonte (pubblica, senza chiave) |
+|---|---|---|
+| Bitcoin (indirizzi, xpub/ypub/zpub) | saldo e storico | mempool.space — gli indirizzi della xpub sono derivati sul tuo computer |
+| Litecoin | saldo e storico | litecoinspace.org |
+| Dogecoin | saldo e storico | BlockCypher |
+| Ethereum, Arbitrum, Base, Optimism, Polygon, Gnosis, Scroll | saldo, token e storico | Blockscout |
+| BNB Chain, Avalanche, Linea, zkSync, Blast, Unichain, Mantle, Sonic, Celo, Berachain, Moonbeam, Cronos | saldo della moneta della rete; con una chiave Etherscan gratuita anche token e storico | nodi pubblici / Etherscan |
+| Solana | saldo, token principali e storico | RPC pubblico (o il tuo, es. Helius) |
+| Tron | saldo, TRX e token TRC-20 (USDT) e storico | TronGrid |
+| XRP Ledger | saldo e storico | xrplcluster.com |
+| Cardano, TON, Stellar | solo saldo | Koios, toncenter, Horizon |
+
+- Ogni entrata o uscita è un **Trasferimento crypto interno** e si abbina da sola all'altra metà (exchange, altri
+  wallet); uno scambio nella stessa transazione (DEX) è vendita + acquisto; la commissione di rete è un'uscita a parte.
+- Valori in euro al prezzo del giorno (Binance, dati pubblici; CryptoCompare per gli anni precedenti), in cache in
+  `~/.finanza/cache`.
+- Token pubblicitari, imitazioni di USDT/USDC e monete senza prezzo di mercato vengono ignorati (con avviso).
+- I saldi sono sempre allineati a quelli reali: ciò che lo storico non spiega diventa un saldo iniziale.
 
 ### Conti bancari (Enable Banking)
 
@@ -156,6 +182,7 @@ server/
   api.ts             endpoint: fonti, collegamenti, sincronizzazione, autorizzazione bancaria
   store.ts           archivio locale delle credenziali (~/.finanza)
   providers/         Interactive Brokers, eToro, Scalable (CLI), exchange crypto (ccxt), Bitpanda, Enable Banking
+  providers/wallet/  wallet crypto dalle blockchain (Bitcoin/xpub, EVM, Solana, Tron, XRP, Litecoin, Dogecoin…)
 ```
 
 ## Note

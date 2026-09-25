@@ -5,6 +5,7 @@ import { bitpanda } from './bitpanda.ts';
 import { etoro } from './etoro.ts';
 import { enablebanking } from './enablebanking.ts';
 import { scalable } from './scalable.ts';
+import { wallet } from './wallet/index.ts';
 import { mock, mockBank } from './mock.ts';
 
 export const providers: Provider[] = [
@@ -15,6 +16,7 @@ export const providers: Provider[] = [
   kraken,
   coinbase,
   bitpanda,
+  wallet,
   enablebanking,
 ];
 
