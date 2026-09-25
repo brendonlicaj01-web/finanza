@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scalableToSync } from './scalable.ts';
+import { parseScOutput, scalableToSync } from './scalable.ts';
 
 /** Risposte nel formato del CLI ufficiale (`sc broker holdings/transactions/cash-breakdown --json`). */
 const holdings = {
@@ -50,6 +50,39 @@ describe('Scalable CLI', () => {
   it('usa posizioni, prezzo di carico FIFO, quotazione e liquidità del CLI', () => {
     expect(r.holdings).toEqual([{ assetKey: 'IE00B4L5Y983', quantity: 12.5, costPrice: 80 }]);
     expect(r.assets[0]).toMatchObject({ isin: 'IE00B4L5Y983', name: 'iShares Core MSCI World', type: 'etf', price: 100 });
+    expect(r.cash).toBe(1006.93);
+  });
+});
+
+/** Output reale del CLI: busta macchina {ok, data} e, dentro, il contenitore {account_id, ..., result}. */
+const wrap = (result: unknown, machine = true) => {
+  const payload = { account_id: 'acc', portfolio_id: 'pf', resolution: { account: 'session', portfolio: 'context' }, result };
+  return machine
+    ? JSON.stringify({ ok: true, command: 'broker.transactions', data: payload })
+    : JSON.stringify(payload, null, 2); // anche stampato su più righe
+};
+
+describe('parseScOutput', () => {
+  it('estrae i dati dal contenitore "result", con o senza busta {ok, data}', () => {
+    const tr = { cursor: null, total: 1, count: 1, items: [tx[0]] };
+    expect(parseScOutput(wrap(tr))).toMatchObject({ items: [{ id: 't1' }] });
+    expect(parseScOutput(wrap(tr, false))).toMatchObject({ items: [{ id: 't1' }] });
+    expect(parseScOutput(JSON.stringify({ ok: true, command: 'whoami', data: { user: 'x' } }))).toEqual({ user: 'x' });
+  });
+
+  it('segnala errori e sessione mancante', () => {
+    expect(() => parseScOutput('{"ok":false,"command":"x","error":{"code":"NO_SESSION","message":"No saved session"}}')).toThrow(/sc login/);
+    expect(() => parseScOutput('{"ok":false,"command":"x","error":{"code":"BROKER_INPUT_INVALID","message":"bad"}}')).toThrow(/bad/);
+    expect(() => parseScOutput('non json')).toThrow(/risposta non valida/);
+  });
+
+  it('con l\'output reale le transazioni arrivano (prima risultavano 0)', () => {
+    const tr = parseScOutput(wrap({ cursor: null, items: tx }));
+    const h = parseScOutput(wrap(holdings));
+    const c = parseScOutput(wrap({ cash_balance: '1006.93' }));
+    const r = scalableToSync(h, tr.items as never, c, 'EUR');
+    expect(r.transactions).toHaveLength(6);
+    expect(r.holdings).toHaveLength(1);
     expect(r.cash).toBe(1006.93);
   });
 });

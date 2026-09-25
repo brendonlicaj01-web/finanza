@@ -19,6 +19,39 @@ const day = (v: unknown) => {
   return s.slice(0, 10);
 };
 
+/**
+ * Interpreta l'output JSON del CLI. I dati possono essere dentro due contenitori:
+ * la busta macchina `{ ok, command, data }` e, per i comandi broker, `{ account_id, portfolio_id, resolution, result }`.
+ */
+export function parseScOutput(stdout: string): Obj {
+  let parsed: Obj | undefined;
+  const text = stdout.trim();
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Più righe di log prima del JSON: prova l'ultima riga.
+    try {
+      parsed = JSON.parse(text.split('\n').filter(Boolean).pop() ?? '');
+    } catch {
+      parsed = undefined;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') throw new ProviderError('Scalable CLI: risposta non valida.');
+  if (parsed.ok === false) {
+    const e = (parsed.error ?? {}) as Obj;
+    const code = str(e.code);
+    if (/session|auth|login|token/i.test(code + str(e.message))) {
+      throw new ProviderError('Scalable: sessione assente o scaduta. Nel terminale esegui "sc login --local-read-only" e riprova.');
+    }
+    throw new ProviderError(`Scalable: ${str(e.message) || code || 'errore del CLI'}`);
+  }
+  let data: unknown = 'ok' in parsed && 'data' in parsed ? parsed.data : parsed;
+  if (data && typeof data === 'object' && 'result' in (data as Obj) && typeof (data as Obj).result === 'object') {
+    data = (data as Obj).result;
+  }
+  return (data ?? {}) as Obj;
+}
+
 /** Esegue `sc <comando> --json` e restituisce i dati (gestisce sia l'output semplice sia la busta {ok, data}). */
 function sc(bin: string, command: string, args: string[] = []): Promise<Obj> {
   if (!READ_COMMANDS.has(command)) return Promise.reject(new ProviderError(`Comando Scalable non consentito: ${command}`));
@@ -35,30 +68,14 @@ function sc(bin: string, command: string, args: string[] = []): Promise<Obj> {
             ),
           );
         }
-        let parsed: Obj | undefined;
         try {
-          parsed = JSON.parse(stdout.trim().split('\n').filter(Boolean).pop() ?? stdout);
-        } catch {
-          try {
-            parsed = JSON.parse(stdout);
-          } catch {
-            parsed = undefined;
+          resolve(parseScOutput(stdout));
+        } catch (e) {
+          if (e instanceof ProviderError && /risposta non valida/.test(e.message) && (stderr || err)) {
+            return reject(new ProviderError(`${e.message} ${(stderr || err?.message || '').slice(0, 200)}`));
           }
+          reject(e);
         }
-        if (parsed && parsed.ok === false) {
-          const e = (parsed.error ?? {}) as Obj;
-          const code = str(e.code);
-          if (/session|auth|login|token/i.test(code + str(e.message))) {
-            return reject(
-              new ProviderError('Scalable: sessione assente o scaduta. Nel terminale esegui "sc login --local-read-only" e riprova.'),
-            );
-          }
-          return reject(new ProviderError(`Scalable: ${str(e.message) || code || 'errore del CLI'}`));
-        }
-        if (!parsed) {
-          return reject(new ProviderError(`Scalable CLI: risposta non valida. ${(stderr || err?.message || '').slice(0, 200)}`));
-        }
-        resolve(('data' in parsed && 'ok' in parsed ? parsed.data : parsed) as Obj);
       },
     );
   });
@@ -113,9 +130,13 @@ export function scalableToSync(
   const transactions: SyncTx[] = [];
   const unknown = new Map<string, number>();
   let cancellations = 0;
+  const skippedStatus = new Map<string, number>();
   for (const t of transactionItems) {
     const status = str(t.status).toUpperCase();
-    if (status && !DONE.has(status)) continue;
+    if (status && !DONE.has(status)) {
+      skippedStatus.set(status, (skippedStatus.get(status) ?? 0) + 1);
+      continue;
+    }
     if (t.is_cancellation === true) {
       cancellations++;
       continue;
@@ -196,6 +217,7 @@ export function scalableToSync(
     unknown.set(kind || '?', (unknown.get(kind || '?') ?? 0) + 1);
   }
 
+  for (const [s, n] of skippedStatus) warnings.push(`${n} transazioni con stato ${s} (non eseguite o annullate) ignorate.`);
   if (cancellations) warnings.push(`${cancellations} storni ignorati: le quantità sono comunque allineate alle posizioni reali.`);
   for (const [t, n] of unknown) warnings.push(`${n} transazioni Scalable di tipo ${t} non riconosciute: ignorate.`);
 
@@ -249,6 +271,10 @@ export const scalable: Provider = {
       if (!cursor || !pageItems.length) break;
     }
     const result = scalableToSync(holdings, items, cash, currency);
+    // Riepilogo diagnostico, visibile negli avvisi del collegamento.
+    result.warnings.unshift(
+      `Dal CLI: ${items.length} transazioni${since ? ' recenti' : ''}, ${((holdings.items as Obj[]) ?? []).length} posizioni; importabili ${result.transactions.length} movimenti.`,
+    );
     if (!cash) result.warnings.push('Liquidità non disponibile dal CLI: non allineata.');
     return result;
   },

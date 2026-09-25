@@ -87,9 +87,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       running.current.add(id);
       setStatus((s) => ({ ...s, [id]: { running: true, message: 'Sincronizzazione in corso…' } }));
       try {
+        // Se da questo collegamento non è ancora arrivato nulla, scarica tutto lo storico
+        // (non solo le novità dall'ultima sincronizzazione).
+        const account = dataRef.current.accounts.find((a) => a.connectionId === id);
+        const imported = !!account && dataRef.current.transactions.some((t) => t.accountId === account.id && t.externalId);
         const res = await api<{ result: SyncResult; connection?: ConnectionInfo }>(`/connections/${id}/sync`, {
           method: 'POST',
-          body: { currency: dataRef.current.settings.currency, full },
+          body: { currency: dataRef.current.settings.currency, full: full || !imported },
         });
         const label = conn.label;
         const date = today();
